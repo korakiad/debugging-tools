@@ -84,11 +84,11 @@ When `.walkthrough/paused.json` appears (test failed):
    - Signal continue
 
    **If real bug — selector issue:**
-   - Read the test file and find the failing selector
-   - Find which page object owns it
-   - Inspect the live DOM to find the correct selector
+   - Ask QA to visually pick the correct element using `/identify-element`
+   - Read the structured DOM output (element attributes + frame chain)
+   - Find which page object owns the failing selector
+   - Match the project's selector strategy to the picked element's attributes
    - Show QA the fix (old vs new) with file and line number
-   - Ask which selector strategy to use if multiple options
    - Apply the fix
    - Signal continue
 
