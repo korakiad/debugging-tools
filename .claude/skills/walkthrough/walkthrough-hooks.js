@@ -10,6 +10,12 @@ const PAUSED_FILE = path.join(SIGNAL_DIR, 'paused.json');
 const CONTINUE_FILE = path.join(SIGNAL_DIR, 'continue');
 const POLL_INTERVAL_MS = 500;
 
+function ensureDir() {
+    if (!fs.existsSync(SIGNAL_DIR)) {
+        fs.mkdirSync(SIGNAL_DIR, { recursive: true });
+    }
+}
+
 exports.mochaHooks = {
     beforeAll() {
         // Clean up stale signals from previous runs
@@ -27,6 +33,8 @@ exports.mochaHooks = {
 
     afterEach: async function () {
         if (this.currentTest.state === 'failed') {
+            ensureDir();
+
             // Write failure details for agent to read
             fs.writeFileSync(PAUSED_FILE, JSON.stringify({
                 test: this.currentTest.title,
@@ -57,6 +65,7 @@ exports.mochaHooks = {
             });
 
             // Update status back to running
+            ensureDir();
             fs.writeFileSync(
                 path.join(SIGNAL_DIR, 'status.json'),
                 JSON.stringify({ state: 'running', resumedAt: Date.now() })
@@ -65,6 +74,7 @@ exports.mochaHooks = {
     },
 
     afterAll() {
+        ensureDir();
         // Write completion signal
         fs.writeFileSync(
             path.join(SIGNAL_DIR, 'status.json'),
