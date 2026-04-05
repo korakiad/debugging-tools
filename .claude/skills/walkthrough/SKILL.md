@@ -156,6 +156,7 @@ Read the surrounding code context. Common issues:
 
 ## Important rules
 
+- **NEVER guess selectors from training data** — you MUST inspect the live DOM via CDP to discover the correct selector. Do not suggest a fix based on what you "think" the selector should be. Always run a snapshot or eval first, read the real attributes, then propose the fix based on what you actually see.
 - **NEVER assume a failure is a bug** — always ask QA first
 - **NEVER modify test config files** — only touch test files and page objects
 - **ALWAYS clean up** — remove .walkthrough-hooks.js and .walkthrough/ when done
