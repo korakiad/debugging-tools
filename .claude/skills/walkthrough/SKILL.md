@@ -79,7 +79,7 @@ When status is `"paused"` (test failed):
    ```bash
    curl -s http://localhost:3456/paused
    ```
-   Returns: `{"test","suite","file","error","stack","duration","pausedAt"}`
+   Returns: `{"test":"...","suite":"...","file":"...","error":"...","stack":"...","duration":0,"pausedAt":0}`
 
 2. **Inspect the live app** via playwright-cli:
    ```bash
@@ -98,13 +98,14 @@ When status is `"paused"` (test failed):
 
    | Error Pattern | Agent asks |
    |---|---|
-   | `element not found` / `no such element` | "Element หาไม่เจอ — อาจเป็นเพราะ wait ไม่ทัน หรือ selector ผิดจริงๆ คุณอยากให้ผมวิเคราะห์ selector หรือคุณ pick locator เอง?" |
+   | `element not found` / `no such element` | "Element หาไม่เจอ — อาจเป็นเพราะ wait ไม่ทัน หรือ selector ผิดจริงๆ คุณอยากให้ผมวิเคราะห์ selector หรือคุณ pick element เอง?" |
    | `element not interactable` / `not clickable` | "Element กดไม่ได้ — อาจเป็นเพราะ disabled อยู่หรือถูกบัง คุณอยากให้ผมดูสถานะ element หรือมันเป็น element ผิดตัว?" |
    | `timeout` / `waitUntil` / `waiting for` | "รอนานเกินไป — อาจเป็นเพราะหน้ายังโหลดไม่เสร็จ หรืออยู่ผิดหน้า คุณเห็นหน้าจอตอนนี้เป็นยังไง?" |
-   | `stale element` | "Element หายไประหว่าง interact — หน้าอาจ reload หรือ DOM เปลี่ยน คุณเห็นหน้ากระพริบหรือโหลดใหม่ไหม?" |
+   | `stale element reference` / `StaleElementReferenceError` | "Element หายไประหว่าง interact — หน้าอาจ reload หรือ DOM เปลี่ยน คุณเห็นหน้ากระพริบหรือโหลดใหม่ไหม?" |
    | `AssertionError` / `expected` / `assert` | "ค่าที่ได้ไม่ตรงที่คาดไว้ — อาจเป็นเพราะข้อมูลผิดหรือดูผิด element คุณอยากให้ผมดูค่าจริง หรือ pick element ที่ถูกต้อง?" |
    | `navigation` / `ERR_` / `net::` | "หน้าไม่ตรง — อาจ redirect ผิดหรือต้อง login ก่อน คุณเห็นหน้าอะไรอยู่ตอนนี้?" |
-   | `frame` / `iframe` / `context` | "Element อาจอยู่ใน iframe — คุณเห็น element ที่ต้องการอยู่ในกรอบเล็กๆ บนหน้าจอไหม?" |
+   | `frame` / `iframe` / `switchToFrame` / `contentFrame` | "Element อาจอยู่ใน iframe — คุณเห็น element ที่ต้องการอยู่ในกรอบเล็กๆ บนหน้าจอไหม?" |
+   | `ECONNREFUSED` / `session not created` / `session deleted` | "Browser อาจปิดหรือ crash ไป — คุณยังเห็นหน้าต่าง browser อยู่ไหม?" |
    | Unrecognized error | "เกิด error ที่ไม่คาดคิด — คุณเห็นอะไรบนหน้าจอตอนนี้? หรืออยากให้ผมวิเคราะห์เอง?" |
 
 4. **Interpret QA's response and act:**
@@ -130,6 +131,9 @@ When status is `"paused"` (test failed):
 
    - **QA's response is unclear:**
      Rephrase the question simpler (see Rephrase Rules below).
+
+   - **Agent investigated but cause is inconclusive:**
+     Tell QA what you checked and offer: "ผมดูแล้วยังไม่ชัดเจน — คุณอยาก pick element ที่ถูกต้อง, บอกข้อมูลเพิ่ม, หรือข้ามไปก่อน?"
 
 5. **Fix-after-confirm:**
 
