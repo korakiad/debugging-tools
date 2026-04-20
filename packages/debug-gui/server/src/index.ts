@@ -2,6 +2,9 @@ import http from "http";
 import { WebSocketServer } from "ws";
 import open from "open";
 import path from "path";
+import express from "express";
+import { fileURLToPath } from "url";
+import { existsSync } from "fs";
 import { loadConfig } from "./config.js";
 import { discoverSuites } from "./discovery.js";
 import { SessionManager } from "./session.js";
@@ -46,6 +49,15 @@ export async function main(cwd: string = process.cwd(), port: number = 5555): Pr
         }
         res.sendFile(path.join(SCREENSHOT_DIR, name));
     });
+
+    // Serve built web SPA from server/dist/../../web/dist in prod.
+    // (In dev, vite serves :5555 and proxies API to backend.)
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const webDist = path.resolve(here, "../../web/dist");
+    if (existsSync(webDist)) {
+        app.use(express.static(webDist));
+        app.get(/^\/(?!api|ws).*/, (_req, res) => res.sendFile(path.join(webDist, "index.html")));
+    }
 
     const httpServer = http.createServer(app);
 
