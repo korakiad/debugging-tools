@@ -58,3 +58,7 @@ if [ $FAILURES_CAUGHT -eq 3 ]; then
 fi
 
 rm -rf "$SIGNAL_DIR"
+
+echo ""
+echo "=== Smoke testing debug-gui ==="
+bash packages/debug-gui/test/smoke.sh
