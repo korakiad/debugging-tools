@@ -10,15 +10,17 @@ export interface EditFileDeps {
     ) => Promise<{ approved: boolean; reason?: string }>;
 }
 
+const editFileSchema = z.object({
+    path: z.string(),
+    oldContent: z.string(),
+    newContent: z.string(),
+});
+
 export function makeEditFileTool(deps: EditFileDeps) {
-    return defineTool("edit_file", {
+    return defineTool<z.infer<typeof editFileSchema>>("edit_file", {
         description: "Edit a file after QA reviews the diff. Always routes through the UI diff modal.",
         overridesBuiltInTool: true,
-        parameters: z.object({
-            path: z.string(),
-            oldContent: z.string(),
-            newContent: z.string(),
-        }),
+        parameters: editFileSchema,
         handler: async ({ path, oldContent, newContent }) => {
             const decision = await deps.onPropose(path, oldContent, newContent);
             if (decision.approved) {
