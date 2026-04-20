@@ -12,7 +12,8 @@
     "server/dist",
     "server/runtime",
     "server/package.json",
-    "web/dist"
+    "web/dist",
+    ".claude/skills"
   ],
   "dependencies": {
     "@github/copilot-sdk": "^0.2.0",
