@@ -13,8 +13,9 @@ mkdirSync(SCREENSHOT_DIR, { recursive: true });
 export async function captureScreenshot(cdpPort: number): Promise<{ id: string; absPath: string }> {
     const id = `${randomUUID()}.png`;
     const absPath = join(SCREENSHOT_DIR, id);
-    await exec("playwright-cli", ["screenshot", "--out", absPath], {
+    await exec("npx", ["playwright-cli", "screenshot", "--out", absPath], {
         env: { ...process.env, PLAYWRIGHT_CDP_PORT: String(cdpPort) },
+        shell: true,
     });
     return { id, absPath };
 }
