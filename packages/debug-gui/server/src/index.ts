@@ -1,6 +1,7 @@
 import http from "http";
 import { WebSocketServer } from "ws";
 import open from "open";
+import path from "path";
 import { loadConfig } from "./config.js";
 import { discoverSuites } from "./discovery.js";
 import { SessionManager } from "./session.js";
@@ -11,6 +12,7 @@ import { createApp, WsHub } from "./server.js";
 import { buildSessionConfig } from "./agent.js";
 import { makeEditFileTool } from "./tools/editFile.js";
 import { makePickElementTool } from "./tools/pickElement.js";
+import { captureScreenshot, SCREENSHOT_DIR } from "./screenshot.js";
 import { CopilotClient } from "@github/copilot-sdk";
 
 export const VERSION = "0.0.1";
@@ -35,6 +37,16 @@ export async function main(cwd: string = process.cwd(), port: number = 5555): Pr
         cwd,
         loadInit: () => ({ suites, config, state: session.getState() }),
     });
+
+    app.get("/api/screenshot/:name", (req, res) => {
+        const name = req.params.name;
+        if (!/^[A-Za-z0-9-]+\.png$/.test(name)) {
+            res.status(400).end();
+            return;
+        }
+        res.sendFile(path.join(SCREENSHOT_DIR, name));
+    });
+
     const httpServer = http.createServer(app);
 
     const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
@@ -66,9 +78,15 @@ export async function main(cwd: string = process.cwd(), port: number = 5555): Pr
             },
         }),
         makePickElementTool({
-            onPick: (hint) => {
+            onPick: async (hint) => {
                 const reqId = Math.random().toString(36).slice(2);
-                const imageUrl = "";
+                let imageUrl = "";
+                try {
+                    const shot = await captureScreenshot(config.cdp.port);
+                    imageUrl = `/api/screenshot/${encodeURIComponent(shot.id)}`;
+                } catch {
+                    // screenshot failure is non-fatal — the picker will still render a placeholder
+                }
                 return new Promise((resolve) => {
                     pickResolvers.set(reqId, resolve);
                     hub.broadcast({ type: "pick", reqId, imageUrl, hint });
