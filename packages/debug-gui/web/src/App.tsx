@@ -49,7 +49,10 @@ export default function App() {
                     />
                 )}
             </main>
-            <ChatDrawer onSend={(prompt) => send({ type: "chat_send", prompt })} />
+            <ChatDrawer
+                onSend={(prompt) => send({ type: "chat_send", prompt })}
+                onAbort={() => send({ type: "agent_abort" })}
+            />
             {pick && (
                 <PickerOverlay
                     imageUrl={pick.imageUrl}

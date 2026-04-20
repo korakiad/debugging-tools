@@ -93,6 +93,11 @@ export async function main(
     const copilot = new CopilotClient();
     await copilot.start();
 
+    // Tracked across messages so agent_abort can reach the live session and
+    // suppress the rejection that abort() causes in sendAndWait().
+    let currentAgentSession: Awaited<ReturnType<typeof copilot.createSession>> | null = null;
+    let aborting = false;
+
     const tools = [
         makeEditFileTool({
             onPropose: (file, oldCode, newCode) => {
@@ -144,6 +149,7 @@ export async function main(
                         onEdit: async () => ({ approved: true }),
                     })
                 );
+                currentAgentSession = agentSession;
             } catch (e: any) {
                 hub.broadcast({ type: "error", message: `Copilot session: ${e?.message ?? e}` });
                 console.error("createSession failed:", e);
@@ -187,15 +193,23 @@ export async function main(
                             config.agent.idleTimeoutMs,
                         );
                     } catch (e: any) {
-                        hub.broadcast({ type: "error", message: `Agent send: ${e?.message ?? e}` });
-                        console.error("agent.send failed:", e);
+                        if (aborting) {
+                            hub.broadcast({ type: "chat_final", content: "[aborted by user]" });
+                        } else {
+                            hub.broadcast({ type: "error", message: `Agent send: ${e?.message ?? e}` });
+                            console.error("agent.send failed:", e);
+                        }
                     } finally {
+                        aborting = false;
                         hub.broadcast({ type: "agent_thinking", active: false });
                         hub.broadcast({ type: "agent_activity", label: "" });
                     }
                 };
                 session.events.on("change", onChange);
-                runner.once("exit", () => session.events.off("change", onChange));
+                runner.once("exit", () => {
+                    session.events.off("change", onChange);
+                    currentAgentSession = null;
+                });
             }
         }
         if (cmd.type === "diff_decision") {
@@ -216,7 +230,22 @@ export async function main(
             await hooker.postContinue();
             session.markResumed();
         }
+        if (cmd.type === "agent_abort") {
+            if (currentAgentSession) {
+                aborting = true;
+                try {
+                    await currentAgentSession.abort();
+                } catch (e: any) {
+                    aborting = false;
+                    hub.broadcast({ type: "error", message: `Agent abort: ${e?.message ?? e}` });
+                }
+            }
+        }
         if (cmd.type === "cancel") {
+            if (currentAgentSession) {
+                aborting = true;
+                try { await currentAgentSession.abort(); } catch { /* ignore */ }
+            }
             runner.kill();
             orch.stop();
             session.reset();

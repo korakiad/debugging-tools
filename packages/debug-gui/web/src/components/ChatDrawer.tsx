@@ -1,7 +1,13 @@
 import { useStore } from "../state/store";
 import { Spinner } from "./Spinner";
 
-export function ChatDrawer({ onSend }: { onSend: (prompt: string) => void }) {
+export function ChatDrawer({
+    onSend,
+    onAbort,
+}: {
+    onSend: (prompt: string) => void;
+    onAbort: () => void;
+}) {
     const messages = useStore((s) => s.chatMessages);
     const thinking = useStore((s) => s.agentThinking);
     const activity = useStore((s) => s.agentActivity);
@@ -19,6 +25,14 @@ export function ChatDrawer({ onSend }: { onSend: (prompt: string) => void }) {
                     <div className="flex items-center gap-2 text-sm text-gray-600 italic">
                         <Spinner />
                         <span>{activity || "Agent thinking…"}</span>
+                        <button
+                            type="button"
+                            onClick={onAbort}
+                            className="ml-auto px-2 py-0.5 text-xs rounded border border-gray-300 not-italic text-gray-700 hover:bg-gray-100"
+                            aria-label="Stop agent"
+                        >
+                            Stop
+                        </button>
                     </div>
                 )}
             </div>
