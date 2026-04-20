@@ -1,4 +1,5 @@
 import { globSync } from "glob";
+import path from "path";
 
 export interface Suite {
     relPath: string;
@@ -16,7 +17,6 @@ export function discoverSuites(
         posix: true,
     });
     return matches
-        .map((m) => m.replace(/\\/g, "/"))
-        .map((relPath) => ({ relPath, absPath: `${cwd}/${relPath}` }))
+        .map((relPath) => ({ relPath, absPath: path.resolve(cwd, relPath) }))
         .sort((a, b) => a.relPath.localeCompare(b.relPath));
 }
