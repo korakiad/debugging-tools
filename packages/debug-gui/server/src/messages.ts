@@ -5,6 +5,8 @@ export type ServerEvent =
     | { type: "status"; state: SessionSnapshot["state"] }
     | { type: "paused"; failure: FailureInfo }
     | { type: "test_progress"; test: string; result: "pass" | "fail" | "pending" }
+    | { type: "mocha_log"; stream: "stdout" | "stderr"; text: string }
+    | { type: "mocha_exit"; code: number | null }
     | { type: "chat_delta"; text: string }
     | { type: "chat_final"; content: string }
     | { type: "diff"; reqId: string; file: string; oldCode: string; newCode: string }

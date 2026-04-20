@@ -34,6 +34,11 @@ export interface ServerEvent {
     [k: string]: any;
 }
 
+export interface MochaLogLine {
+    stream: "stdout" | "stderr";
+    text: string;
+}
+
 interface Store {
     suites: Suite[];
     config: Record<string, unknown>;
@@ -41,6 +46,8 @@ interface Store {
     chatMessages: Array<{ role: "assistant" | "user"; content: string }>;
     pendingDiff: Diff | null;
     pendingPick: Pick | null;
+    mochaLog: MochaLogLine[];
+    mochaExitCode: number | null | undefined;
     applyEvent: (e: ServerEvent) => void;
 }
 
@@ -51,12 +58,17 @@ export const useStore = create<Store>((set) => ({
     chatMessages: [],
     pendingDiff: null,
     pendingPick: null,
+    mochaLog: [],
+    mochaExitCode: undefined,
     applyEvent: (e) =>
         set((s) => {
             if (e.type === "init") {
-                return { suites: e.suites, config: e.config, state: e.state };
+                return { suites: e.suites, config: e.config, state: e.state, mochaLog: [], mochaExitCode: undefined };
             }
             if (e.type === "status") {
+                if (e.state === "running") {
+                    return { state: { ...s.state, state: e.state }, mochaLog: [], mochaExitCode: undefined };
+                }
                 return { state: { ...s.state, state: e.state } };
             }
             if (e.type === "paused") {
@@ -67,6 +79,13 @@ export const useStore = create<Store>((set) => ({
             }
             if (e.type === "pick") {
                 return { pendingPick: { reqId: e.reqId, imageUrl: e.imageUrl, hint: e.hint } };
+            }
+            if (e.type === "mocha_log") {
+                const next = [...s.mochaLog, { stream: e.stream, text: e.text }];
+                return { mochaLog: next.slice(-500) };
+            }
+            if (e.type === "mocha_exit") {
+                return { mochaExitCode: e.code };
             }
             if (e.type === "chat_delta") {
                 const last = s.chatMessages[s.chatMessages.length - 1];

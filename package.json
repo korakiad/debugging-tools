@@ -9,5 +9,12 @@
   "devDependencies": {
     "webdriverio": "^9.0.0",
     "mocha": "^11.0.0"
+  },
+  "mocha": {
+    "require": [
+      "./test/walkthrough-e2e-wdio/wdio-setup.js",
+      "./.claude/skills/walkthrough/walkthrough-hooks.js"
+    ],
+    "timeout": 60000
   }
 }

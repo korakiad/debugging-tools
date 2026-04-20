@@ -33,6 +33,13 @@ export async function main(cwd: string = process.cwd(), port: number = 5555): Pr
     const runner = new MochaRunner();
     const hub = new WsHub();
 
+    runner.on("stdout", (text: string) => hub.broadcast({ type: "mocha_log", stream: "stdout", text }));
+    runner.on("stderr", (text: string) => hub.broadcast({ type: "mocha_log", stream: "stderr", text }));
+    runner.on("exit", (code: number | null) => {
+        hub.broadcast({ type: "mocha_exit", code });
+        if (session.getState().state !== "paused") session.markDone();
+    });
+
     const editResolvers = new Map<string, (d: { approved: boolean; reason?: string }) => void>();
     const pickResolvers = new Map<string, (attrs: Record<string, unknown>) => void>();
 

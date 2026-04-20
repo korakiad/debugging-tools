@@ -17,11 +17,25 @@ export interface MochaCommand {
 export function buildMochaCommand(opts: BuildOptions): MochaCommand {
     const command = opts.customCommand ?? "npx";
     const args = opts.customCommand ? [opts.spec] : ["mocha", opts.spec];
+
+    const requires = toArray(opts.mocha.require);
+    for (const r of requires) {
+        args.push("--require", r);
+    }
+    for (const f of opts.mocha.file ?? []) {
+        args.push("--file", f);
+    }
+
     return {
         command,
         args,
         env: { ...process.env, WALKTHROUGH_PORT: String(opts.walkthroughPort) },
     };
+}
+
+function toArray(v: string | string[] | undefined): string[] {
+    if (!v) return [];
+    return Array.isArray(v) ? v : [v];
 }
 
 export class MochaRunner extends EventEmitter {

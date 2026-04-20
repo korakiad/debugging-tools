@@ -5,6 +5,7 @@ import { FailureCard } from "./components/FailureCard";
 import { DiffView } from "./components/DiffView";
 import { PickerOverlay } from "./components/PickerOverlay";
 import { ChatDrawer } from "./components/ChatDrawer";
+import { MochaLogPanel } from "./components/MochaLogPanel";
 
 export default function App() {
     const { send } = useWebSocket();
@@ -19,6 +20,7 @@ export default function App() {
             <main className="flex-1 p-4 overflow-auto space-y-4">
                 <div>Status: {state.state}</div>
                 {state.currentFailure && <FailureCard failure={state.currentFailure} />}
+                <MochaLogPanel />
                 {diff && (
                     <DiffView
                         file={diff.file}
