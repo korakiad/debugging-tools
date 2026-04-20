@@ -7,6 +7,8 @@ export type ServerEvent =
     | { type: "test_progress"; test: string; result: "pass" | "fail" | "pending" }
     | { type: "mocha_log"; stream: "stdout" | "stderr"; text: string }
     | { type: "mocha_exit"; code: number | null }
+    | { type: "agent_thinking"; active: boolean }
+    | { type: "agent_activity"; label: string }
     | { type: "chat_delta"; text: string }
     | { type: "chat_final"; content: string }
     | { type: "diff"; reqId: string; file: string; oldCode: string; newCode: string }

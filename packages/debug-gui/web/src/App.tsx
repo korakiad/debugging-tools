@@ -6,6 +6,7 @@ import { DiffView } from "./components/DiffView";
 import { PickerOverlay } from "./components/PickerOverlay";
 import { ChatDrawer } from "./components/ChatDrawer";
 import { MochaLogPanel } from "./components/MochaLogPanel";
+import { Spinner } from "./components/Spinner";
 
 export default function App() {
     const { send } = useWebSocket();
@@ -19,6 +20,7 @@ export default function App() {
             <TestTree suites={suites} onRun={(spec) => send({ type: "run", spec })} />
             <main className="flex-1 p-4 overflow-auto space-y-4">
                 <div className="flex items-center gap-3">
+                    {state.state === "running" && <Spinner />}
                     <span>Status: {state.state}</span>
                     {state.state === "paused" && (
                         <button

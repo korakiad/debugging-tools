@@ -147,6 +147,13 @@ export async function main(cwd: string = process.cwd(), port: number = 5555): Pr
                     const content: string = ev?.data?.content ?? "";
                     if (content) hub.broadcast({ type: "chat_final", content });
                 });
+                agentSession.on("command.execute", (ev: any) => {
+                    const name: string = ev?.data?.name ?? ev?.data?.tool ?? "tool";
+                    hub.broadcast({ type: "agent_activity", label: `calling ${name}` });
+                });
+                agentSession.on("command.completed", () => {
+                    hub.broadcast({ type: "agent_activity", label: "" });
+                });
 
                 let lastPausedAt = 0;
                 const onChange = async (snap: ReturnType<typeof session.getState>) => {
@@ -154,6 +161,7 @@ export async function main(cwd: string = process.cwd(), port: number = 5555): Pr
                     const at = snap.currentFailure.pausedAt ?? 0;
                     if (at === lastPausedAt) return;
                     lastPausedAt = at;
+                    hub.broadcast({ type: "agent_thinking", active: true });
                     try {
                         await agentSession!.send({
                             prompt:
@@ -168,6 +176,9 @@ export async function main(cwd: string = process.cwd(), port: number = 5555): Pr
                     } catch (e: any) {
                         hub.broadcast({ type: "error", message: `Agent send: ${e?.message ?? e}` });
                         console.error("agent.send failed:", e);
+                    } finally {
+                        hub.broadcast({ type: "agent_thinking", active: false });
+                        hub.broadcast({ type: "agent_activity", label: "" });
                     }
                 };
                 session.events.on("change", onChange);

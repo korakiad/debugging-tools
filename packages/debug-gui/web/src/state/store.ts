@@ -48,6 +48,8 @@ interface Store {
     pendingPick: Pick | null;
     mochaLog: MochaLogLine[];
     mochaExitCode: number | null | undefined;
+    agentThinking: boolean;
+    agentActivity: string;
     applyEvent: (e: ServerEvent) => void;
 }
 
@@ -60,14 +62,24 @@ export const useStore = create<Store>((set) => ({
     pendingPick: null,
     mochaLog: [],
     mochaExitCode: undefined,
+    agentThinking: false,
+    agentActivity: "",
     applyEvent: (e) =>
         set((s) => {
             if (e.type === "init") {
-                return { suites: e.suites, config: e.config, state: e.state, mochaLog: [], mochaExitCode: undefined };
+                return {
+                    suites: e.suites, config: e.config, state: e.state,
+                    mochaLog: [], mochaExitCode: undefined,
+                    agentThinking: false, agentActivity: "",
+                };
             }
             if (e.type === "status") {
                 if (e.state === "running") {
-                    return { state: { ...s.state, state: e.state }, mochaLog: [], mochaExitCode: undefined };
+                    return {
+                        state: { ...s.state, state: e.state },
+                        mochaLog: [], mochaExitCode: undefined,
+                        agentThinking: false, agentActivity: "",
+                    };
                 }
                 return { state: { ...s.state, state: e.state } };
             }
@@ -100,6 +112,12 @@ export const useStore = create<Store>((set) => ({
             }
             if (e.type === "chat_final") {
                 return { chatMessages: [...s.chatMessages, { role: "assistant", content: e.content }] };
+            }
+            if (e.type === "agent_thinking") {
+                return { agentThinking: e.active, agentActivity: e.active ? s.agentActivity : "" };
+            }
+            if (e.type === "agent_activity") {
+                return { agentActivity: e.label };
             }
             if (e.type === "error") {
                 return {
