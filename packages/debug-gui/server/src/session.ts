@@ -8,6 +8,7 @@ export interface FailureInfo {
     error: string;
     stack: string;
     suite?: string;
+    pausedAt?: number;
 }
 
 export interface SessionSnapshot {

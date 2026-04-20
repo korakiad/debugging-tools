@@ -127,22 +127,52 @@ export async function main(cwd: string = process.cwd(), port: number = 5555): Pr
             session.markRunning(cmd.spec);
             orch.start(500);
 
-            const agentSession = await copilot.createSession(
-                buildSessionConfig({
-                    cwd,
-                    tools,
-                    onPick: () => Promise.resolve({}),
-                    onEdit: async () => ({ approved: true }),
-                })
-            );
+            let agentSession: Awaited<ReturnType<typeof copilot.createSession>> | null = null;
+            try {
+                agentSession = await copilot.createSession(
+                    buildSessionConfig({
+                        cwd,
+                        tools,
+                        onPick: () => Promise.resolve({}),
+                        onEdit: async () => ({ approved: true }),
+                    })
+                );
+            } catch (e: any) {
+                hub.broadcast({ type: "error", message: `Copilot session: ${e?.message ?? e}` });
+                console.error("createSession failed:", e);
+            }
 
-            session.events.once("change", async (snap) => {
-                if (snap.state === "paused") {
-                    await agentSession.send({
-                        prompt: "A test just failed. Read /paused via curl, then follow the walkthrough SKILL to investigate and propose fixes.",
-                    });
-                }
-            });
+            if (agentSession) {
+                agentSession.on("assistant.message", (ev: any) => {
+                    const content: string = ev?.data?.content ?? "";
+                    if (content) hub.broadcast({ type: "chat_final", content });
+                });
+
+                let lastPausedAt = 0;
+                const onChange = async (snap: ReturnType<typeof session.getState>) => {
+                    if (snap.state !== "paused" || !snap.currentFailure) return;
+                    const at = snap.currentFailure.pausedAt ?? 0;
+                    if (at === lastPausedAt) return;
+                    lastPausedAt = at;
+                    try {
+                        await agentSession!.send({
+                            prompt:
+                                `A mocha test just failed and the walkthrough hook paused execution.\n` +
+                                `Read .walkthrough/paused.json for full failure details ` +
+                                `(test, file, error, stack). Follow the walkthrough SKILL: ` +
+                                `inspect the live app via playwright-cli (CDP port ${config.cdp.port}) ` +
+                                `to find the correct selector/fix, then call edit_file with the proposed change. ` +
+                                `After QA approves or rejects, write .walkthrough/continue (empty file) ` +
+                                `to resume the test runner.`,
+                        });
+                    } catch (e: any) {
+                        hub.broadcast({ type: "error", message: `Agent send: ${e?.message ?? e}` });
+                        console.error("agent.send failed:", e);
+                    }
+                };
+                session.events.on("change", onChange);
+                runner.once("exit", () => session.events.off("change", onChange));
+            }
         }
         if (cmd.type === "diff_decision") {
             const resolver = editResolvers.get(cmd.reqId);

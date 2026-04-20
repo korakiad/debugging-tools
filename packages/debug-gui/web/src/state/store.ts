@@ -98,6 +98,17 @@ export const useStore = create<Store>((set) => ({
                     chatMessages: [...s.chatMessages, { role: "assistant", content: e.text }],
                 };
             }
+            if (e.type === "chat_final") {
+                return { chatMessages: [...s.chatMessages, { role: "assistant", content: e.content }] };
+            }
+            if (e.type === "error") {
+                return {
+                    chatMessages: [
+                        ...s.chatMessages,
+                        { role: "assistant", content: `[error] ${e.message}` },
+                    ],
+                };
+            }
             return {};
         }),
 }));
