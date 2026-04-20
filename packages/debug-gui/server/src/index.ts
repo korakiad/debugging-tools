@@ -170,16 +170,22 @@ export async function main(
                     lastPausedAt = at;
                     hub.broadcast({ type: "agent_thinking", active: true });
                     try {
-                        await agentSession!.send({
-                            prompt:
-                                `A mocha test just failed and the walkthrough hook paused execution.\n` +
-                                `Read .walkthrough/paused.json for full failure details ` +
-                                `(test, file, error, stack). Follow the walkthrough SKILL: ` +
-                                `inspect the live app via playwright-cli (CDP port ${config.cdp.port}) ` +
-                                `to find the correct selector/fix, then call edit_file with the proposed change. ` +
-                                `After QA approves or rejects, write .walkthrough/continue (empty file) ` +
-                                `to resume the test runner.`,
-                        });
+                        // sendAndWait blocks until session.idle so the spinner
+                        // stays up until the agent actually finishes. Plain
+                        // send() resolves as soon as the RPC is acknowledged.
+                        await agentSession!.sendAndWait(
+                            {
+                                prompt:
+                                    `A mocha test just failed and the walkthrough hook paused execution.\n` +
+                                    `Read .walkthrough/paused.json for full failure details ` +
+                                    `(test, file, error, stack). Follow the walkthrough SKILL: ` +
+                                    `inspect the live app via playwright-cli (CDP port ${config.cdp.port}) ` +
+                                    `to find the correct selector/fix, then call edit_file with the proposed change. ` +
+                                    `After QA approves or rejects, write .walkthrough/continue (empty file) ` +
+                                    `to resume the test runner.`,
+                            },
+                            config.agent.idleTimeoutMs,
+                        );
                     } catch (e: any) {
                         hub.broadcast({ type: "error", message: `Agent send: ${e?.message ?? e}` });
                         console.error("agent.send failed:", e);

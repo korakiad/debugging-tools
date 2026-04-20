@@ -11,6 +11,7 @@ export interface DebugGuiConfig {
     cdp: { port: number };
     walkthroughPort: number;
     discovery: { globs: string[] };
+    agent: { idleTimeoutMs: number };
 }
 
 const DEFAULT_GLOBS = [
@@ -26,5 +27,6 @@ export function loadConfig(cwd: string): DebugGuiConfig {
         cdp: { port: dg.cdp?.port ?? 9222 },
         walkthroughPort: dg.walkthroughPort ?? 3456,
         discovery: { globs: dg.discovery?.globs ?? DEFAULT_GLOBS },
+        agent: { idleTimeoutMs: dg.agent?.idleTimeoutMs ?? 10 * 60 * 1000 },
     };
 }
