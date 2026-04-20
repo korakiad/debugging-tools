@@ -1,6 +1,9 @@
 {
   "name": "debuggig-tools",
   "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "devDependencies": {
     "webdriverio": "^9.0.0",
     "mocha": "^11.0.0"
