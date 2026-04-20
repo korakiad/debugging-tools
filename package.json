@@ -2,7 +2,9 @@
   "name": "debuggig-tools",
   "private": true,
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "packages/debug-gui/server",
+    "packages/debug-gui/web"
   ],
   "devDependencies": {
     "webdriverio": "^9.0.0",
