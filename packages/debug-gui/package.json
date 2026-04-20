@@ -7,6 +7,21 @@
   "bin": {
     "debug-gui": "./bin/debug-gui.js"
   },
+  "files": [
+    "bin",
+    "server/dist",
+    "server/runtime",
+    "server/package.json",
+    "web/dist"
+  ],
+  "dependencies": {
+    "@github/copilot-sdk": "^0.2.0",
+    "express": "^4.19.2",
+    "glob": "^10.3.0",
+    "open": "^10.1.0",
+    "ws": "^8.17.0",
+    "zod": "^4.3.6"
+  },
   "scripts": {
     "build": "npm run build -w @debug-gui/server && npm run build -w @debug-gui/web",
     "dev": "npm run dev -w @debug-gui/server & npm run dev -w @debug-gui/web",

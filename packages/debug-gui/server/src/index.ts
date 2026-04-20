@@ -20,8 +20,15 @@ import { CopilotClient } from "@github/copilot-sdk";
 
 export const VERSION = "0.0.1";
 
-export async function main(cwd: string = process.cwd(), port: number = 5555): Promise<void> {
+export async function main(
+    cwd: string = process.cwd(),
+    port: number = 5555,
+    commandTokens: string[] = [],
+): Promise<void> {
     const config = loadConfig(cwd);
+    const customCommand = commandTokens.length > 0
+        ? { cmd: commandTokens[0], args: commandTokens.slice(1) }
+        : undefined;
     const suites = discoverSuites(cwd, {
         globs: config.discovery.globs,
         exclude: config.mocha.exclude,
@@ -121,7 +128,7 @@ export async function main(cwd: string = process.cwd(), port: number = 5555): Pr
             const mochaCmd = buildMochaCommand({
                 spec,
                 walkthroughPort: config.walkthroughPort,
-                mocha: config.mocha,
+                customCommand,
             });
             runner.start(mochaCmd);
             session.markRunning(cmd.spec);
@@ -219,7 +226,7 @@ export async function main(cwd: string = process.cwd(), port: number = 5555): Pr
 
 if (import.meta.url === `file://${process.argv[1]}`) {
     const port = process.env.PORT ? Number(process.env.PORT) : 5555;
-    main(process.cwd(), port).catch((e) => {
+    main(process.cwd(), port, process.argv.slice(2)).catch((e) => {
         console.error(e);
         process.exit(1);
     });
