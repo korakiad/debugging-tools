@@ -18,7 +18,17 @@ export default function App() {
         <div className="flex h-screen">
             <TestTree suites={suites} onRun={(spec) => send({ type: "run", spec })} />
             <main className="flex-1 p-4 overflow-auto space-y-4">
-                <div>Status: {state.state}</div>
+                <div className="flex items-center gap-3">
+                    <span>Status: {state.state}</span>
+                    {state.state === "paused" && (
+                        <button
+                            className="bg-blue-600 text-white px-3 py-1 rounded text-sm"
+                            onClick={() => send({ type: "continue" })}
+                        >
+                            Continue
+                        </button>
+                    )}
+                </div>
                 {state.currentFailure && <FailureCard failure={state.currentFailure} />}
                 <MochaLogPanel />
                 {diff && (

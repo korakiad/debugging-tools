@@ -1,36 +1,44 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { HookerClient } from "../src/hooker.js";
+import { mkdtempSync, writeFileSync, mkdirSync, existsSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 
-describe("HookerClient", () => {
-    beforeEach(() => vi.stubGlobal("fetch", vi.fn()));
-    afterEach(() => vi.unstubAllGlobals());
+function makeCwd(): string {
+    const cwd = mkdtempSync(join(tmpdir(), "dbg-hk-"));
+    mkdirSync(join(cwd, ".walkthrough"));
+    return cwd;
+}
 
-    it("getStatus returns parsed JSON", async () => {
-        (fetch as any).mockResolvedValue({
-            ok: true,
-            json: async () => ({ state: "running", startedAt: 1 }),
-        });
-        const client = new HookerClient(3456);
+describe("HookerClient (filesystem protocol)", () => {
+    it("getStatus returns parsed status.json", async () => {
+        const cwd = makeCwd();
+        writeFileSync(join(cwd, ".walkthrough/status.json"), JSON.stringify({ state: "running", startedAt: 1 }));
+        const client = new HookerClient(cwd);
         expect(await client.getStatus()).toEqual({ state: "running", startedAt: 1 });
     });
 
-    it("getPaused returns failure object", async () => {
-        (fetch as any).mockResolvedValue({
-            ok: true,
-            json: async () => ({ test: "t", file: "a", error: "e", stack: "" }),
-        });
-        const client = new HookerClient(3456);
+    it("getStatus returns idle when status.json is missing", async () => {
+        const cwd = makeCwd();
+        const client = new HookerClient(cwd);
+        expect(await client.getStatus()).toEqual({ state: "idle" });
+    });
+
+    it("getPaused returns failure object from paused.json", async () => {
+        const cwd = makeCwd();
+        writeFileSync(
+            join(cwd, ".walkthrough/paused.json"),
+            JSON.stringify({ test: "t", file: "a.spec.js", error: "e", stack: "" })
+        );
+        const client = new HookerClient(cwd);
         const p = await client.getPaused();
         expect(p.test).toBe("t");
     });
 
-    it("postContinue sends POST request", async () => {
-        (fetch as any).mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
-        const client = new HookerClient(3456);
+    it("postContinue writes the continue file", async () => {
+        const cwd = makeCwd();
+        const client = new HookerClient(cwd);
         await client.postContinue();
-        expect(fetch).toHaveBeenCalledWith(
-            "http://127.0.0.1:3456/continue",
-            expect.objectContaining({ method: "POST" })
-        );
+        expect(existsSync(join(cwd, ".walkthrough/continue"))).toBe(true);
     });
 });

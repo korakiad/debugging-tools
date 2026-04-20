@@ -14,7 +14,10 @@ export class Orchestrator {
         if (status.state === "paused" && current !== "paused") {
             const failure = await this.hooker.getPaused();
             this.session.markPaused(failure);
-        } else if (status.state === "done") {
+        } else if (status.state === "running" && current === "paused") {
+            // Hook consumed a continue signal out-of-band (e.g. agent via shell)
+            this.session.markResumed();
+        } else if (status.state === "done" && current !== "done") {
             this.session.markDone();
         }
     }

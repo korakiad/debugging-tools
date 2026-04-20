@@ -28,7 +28,7 @@ export async function main(cwd: string = process.cwd(), port: number = 5555): Pr
     });
 
     const session = new SessionManager();
-    const hooker = new HookerClient(config.walkthroughPort);
+    const hooker = new HookerClient(cwd);
     const orch = new Orchestrator(session, hooker);
     const runner = new MochaRunner();
     const hub = new WsHub();
@@ -157,6 +157,10 @@ export async function main(cwd: string = process.cwd(), port: number = 5555): Pr
                 resolver(cmd.attrs);
                 pickResolvers.delete(cmd.reqId);
             }
+        }
+        if (cmd.type === "continue") {
+            await hooker.postContinue();
+            session.markResumed();
         }
         if (cmd.type === "cancel") {
             runner.kill();
