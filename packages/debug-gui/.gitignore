@@ -3,3 +3,7 @@ dist/
 *.log
 .vite/
 coverage/
+*.tsbuildinfo
+web/vite.config.js
+web/vite.config.d.ts
+package-lock.json

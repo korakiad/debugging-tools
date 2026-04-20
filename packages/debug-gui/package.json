@@ -6,13 +6,9 @@
   "bin": {
     "debug-gui": "./bin/debug-gui.js"
   },
-  "workspaces": [
-    "server",
-    "web"
-  ],
   "scripts": {
-    "build": "npm run build -w server && npm run build -w web",
-    "dev": "npm run dev -w server & npm run dev -w web",
-    "test": "npm run test -w server && npm run test -w web"
+    "build": "npm run build -w @debug-gui/server && npm run build -w @debug-gui/web",
+    "dev": "npm run dev -w @debug-gui/server & npm run dev -w @debug-gui/web",
+    "test": "npm run test -w @debug-gui/server && npm run test -w @debug-gui/web"
   }
 }
