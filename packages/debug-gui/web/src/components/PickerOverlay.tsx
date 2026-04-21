@@ -1,3 +1,5 @@
+import { EfButton } from "../ui";
+
 export function PickerOverlay({
     imageUrl,
     hint,
@@ -10,15 +12,23 @@ export function PickerOverlay({
     onCancel: () => void;
 }) {
     return (
-        <div className="fixed inset-0 bg-black/80 z-50 flex flex-col items-center p-4">
-            <div className="flex justify-between w-full max-w-4xl mb-2 text-white">
+        <div
+            role="dialog"
+            aria-modal="true"
+            className="fixed inset-0 z-50 flex flex-col items-center p-4"
+            style={{ background: "rgba(0,0,0,0.8)" }}
+        >
+            <div className="flex justify-between items-center w-full max-w-4xl mb-2" style={{ color: "var(--ef-primary)" }}>
                 <span>Click the element: "{hint}"</span>
-                <button onClick={onCancel}>Cancel</button>
+                <EfButton transparent onClick={onCancel}>
+                    Cancel
+                </EfButton>
             </div>
             <img
                 alt="page"
                 src={imageUrl}
-                className="max-h-[80vh] cursor-crosshair"
+                className="cursor-crosshair"
+                style={{ maxHeight: "80vh" }}
                 onClick={(e) => onPick({ x: e.clientX, y: e.clientY })}
             />
         </div>

@@ -4,8 +4,13 @@ export function Spinner({ size = 16 }: { size?: number }) {
         <span
             role="status"
             aria-label="loading"
-            className="inline-block animate-spin rounded-full border-2 border-gray-300 border-t-blue-600"
-            style={{ width: s, height: s }}
+            className="inline-block animate-spin rounded-full"
+            style={{
+                width: s,
+                height: s,
+                border: "2px solid rgba(255,255,255,0.18)",
+                borderTopColor: "var(--ef-primary, #1429bd)",
+            }}
         />
     );
 }

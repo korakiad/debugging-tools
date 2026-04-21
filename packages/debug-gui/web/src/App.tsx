@@ -7,6 +7,7 @@ import { PickerOverlay } from "./components/PickerOverlay";
 import { ChatDrawer } from "./components/ChatDrawer";
 import { MochaLogPanel } from "./components/MochaLogPanel";
 import { Spinner } from "./components/Spinner";
+import { EfButton } from "./ui";
 
 export default function App() {
     const { send } = useWebSocket();
@@ -23,12 +24,9 @@ export default function App() {
                     {state.state === "running" && <Spinner />}
                     <span>Status: {state.state}</span>
                     {state.state === "paused" && (
-                        <button
-                            className="bg-blue-600 text-white px-3 py-1 rounded text-sm"
-                            onClick={() => send({ type: "continue" })}
-                        >
+                        <EfButton cta onClick={() => send({ type: "continue" })}>
                             Continue
-                        </button>
+                        </EfButton>
                     )}
                 </div>
                 {state.currentFailure && <FailureCard failure={state.currentFailure} />}

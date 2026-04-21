@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { useStore } from "../state/store";
 import { Spinner } from "./Spinner";
+import { EfButton, EfTextField } from "../ui";
 
 export function ChatDrawer({
     onSend,
@@ -11,6 +13,15 @@ export function ChatDrawer({
     const messages = useStore((s) => s.chatMessages);
     const thinking = useStore((s) => s.agentThinking);
     const activity = useStore((s) => s.agentActivity);
+    const [prompt, setPrompt] = useState("");
+
+    const submit = () => {
+        if (prompt.trim()) {
+            onSend(prompt);
+            setPrompt("");
+        }
+    };
+
     return (
         <aside className="w-96 border-l h-full flex flex-col">
             <h2 className="p-2 font-bold text-sm border-b">Chat</h2>
@@ -22,34 +33,36 @@ export function ChatDrawer({
                     </div>
                 ))}
                 {thinking && (
-                    <div className="flex items-center gap-2 text-sm text-gray-600 italic">
+                    <div className="flex items-center gap-2 text-sm italic opacity-70">
                         <Spinner />
                         <span>{activity || "Agent thinking…"}</span>
-                        <button
-                            type="button"
-                            onClick={onAbort}
-                            className="ml-auto px-2 py-0.5 text-xs rounded border border-gray-300 not-italic text-gray-700 hover:bg-gray-100"
-                            aria-label="Stop agent"
-                        >
-                            Stop
-                        </button>
+                        <span className="ml-auto not-italic">
+                            <EfButton transparent onClick={onAbort} aria-label="Stop agent">
+                                Stop
+                            </EfButton>
+                        </span>
                     </div>
                 )}
             </div>
-            <form
-                className="flex border-t"
-                onSubmit={(e) => {
-                    e.preventDefault();
-                    const input = e.currentTarget.elements.namedItem("prompt") as HTMLInputElement;
-                    if (input.value) {
-                        onSend(input.value);
-                        input.value = "";
+            <div
+                className="flex border-t p-2 gap-2"
+                onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        submit();
                     }
                 }}
             >
-                <input name="prompt" className="flex-1 p-2 text-sm" placeholder="Ask..." />
-                <button className="px-3">Send</button>
-            </form>
+                <EfTextField
+                    style={{ flex: 1 }}
+                    placeholder="Ask..."
+                    value={prompt}
+                    onValueChanged={(e) => setPrompt((e as CustomEvent<{ value: string }>).detail.value)}
+                />
+                <EfButton cta onClick={submit}>
+                    Send
+                </EfButton>
+            </div>
         </aside>
     );
 }

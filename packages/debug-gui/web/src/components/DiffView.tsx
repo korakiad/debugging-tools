@@ -1,4 +1,5 @@
 import ReactDiffViewer from "react-diff-viewer-continued";
+import { EfButton, EfPanel } from "../ui";
 
 export function DiffView({
     file,
@@ -14,17 +15,22 @@ export function DiffView({
     onReject: () => void;
 }) {
     return (
-        <div className="border rounded">
-            <div className="text-xs p-2 bg-gray-50 border-b">{file}</div>
-            <ReactDiffViewer oldValue={oldCode} newValue={newCode} splitView={false} />
-            <div className="p-2 flex gap-2 justify-end border-t">
-                <button className="bg-red-500 text-white px-3 py-1 rounded" onClick={onReject}>
-                    Reject
-                </button>
-                <button className="bg-green-600 text-white px-3 py-1 rounded" onClick={onApprove}>
-                    Approve
-                </button>
+        <EfPanel style={{ display: "block" }}>
+            <div className="text-xs p-2 opacity-70" style={{ borderBottom: "1px solid var(--ef-border-color)" }}>
+                {file}
             </div>
-        </div>
+            <ReactDiffViewer oldValue={oldCode} newValue={newCode} splitView={false} useDarkTheme />
+            <div
+                className="p-2 flex gap-2 justify-end"
+                style={{ borderTop: "1px solid var(--ef-border-color)" }}
+            >
+                <EfButton onClick={onReject} style={{ color: "var(--ef-error)" }}>
+                    Reject
+                </EfButton>
+                <EfButton cta onClick={onApprove}>
+                    Approve
+                </EfButton>
+            </div>
+        </EfPanel>
     );
 }
