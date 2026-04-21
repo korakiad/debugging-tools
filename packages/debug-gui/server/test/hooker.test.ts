@@ -41,4 +41,14 @@ describe("HookerClient (filesystem protocol)", () => {
         await client.postContinue();
         expect(existsSync(join(cwd, ".walkthrough/continue"))).toBe(true);
     });
+
+    it("reset removes stale signal files so a fresh run polls from a clean state", async () => {
+        const cwd = makeCwd();
+        writeFileSync(join(cwd, ".walkthrough/status.json"), JSON.stringify({ state: "paused" }));
+        writeFileSync(join(cwd, ".walkthrough/paused.json"), JSON.stringify({ test: "old" }));
+        const client = new HookerClient(cwd);
+        await client.reset();
+        expect(existsSync(join(cwd, ".walkthrough/status.json"))).toBe(false);
+        expect(existsSync(join(cwd, ".walkthrough/paused.json"))).toBe(false);
+    });
 });

@@ -135,6 +135,7 @@ export async function main(
                 walkthroughPort: config.walkthroughPort,
                 customCommand,
             });
+            await hooker.reset();
             runner.start(mochaCmd);
             session.markRunning(cmd.spec);
             orch.start(500);

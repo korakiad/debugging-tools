@@ -29,6 +29,19 @@ export class HookerClient {
         return this.readJson("paused.json");
     }
 
+    // Wipe stale signal files before a fresh run. Without this, the
+    // orchestrator's first poll (500ms after runner.start) reads last
+    // session's paused.json and fires a bogus markPaused while mocha
+    // is still booting — which triggers a second, concurrent agent
+    // sendAndWait when the real failure finally writes a new paused.json.
+    async reset(): Promise<void> {
+        try {
+            await fs.rm(this.signalDir, { recursive: true, force: true });
+        } catch {
+            // ignore — dir may not exist
+        }
+    }
+
     async postContinue(): Promise<void> {
         await fs.mkdir(this.signalDir, { recursive: true });
         const file = path.join(this.signalDir, "continue");
