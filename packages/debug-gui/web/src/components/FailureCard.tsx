@@ -1,3 +1,5 @@
+import { EfPanel } from "../ui";
+
 interface Failure {
     test: string;
     file: string;
@@ -7,16 +9,22 @@ interface Failure {
 
 export function FailureCard({ failure }: { failure: Failure }) {
     return (
-        <div className="border rounded p-4 bg-red-50 space-y-2">
-            <div className="font-bold text-red-700">{failure.test}</div>
-            <div className="text-sm text-gray-600">{failure.file}</div>
-            <pre className="text-xs bg-white p-2 rounded whitespace-pre-wrap">{failure.error}</pre>
+        <EfPanel spacing style={{ display: "block", borderLeft: "3px solid var(--ef-error)" }}>
+            <div className="font-bold" style={{ color: "var(--ef-error)" }}>
+                {failure.test}
+            </div>
+            <div className="text-sm opacity-70">{failure.file}</div>
+            <pre className="text-xs p-2 rounded whitespace-pre-wrap mt-2" style={{ background: "var(--ef-content-primary-background-color)" }}>
+                {failure.error}
+            </pre>
             {failure.stack && (
-                <details>
+                <details className="mt-2">
                     <summary className="text-xs cursor-pointer">Stack trace</summary>
-                    <pre className="text-xs bg-white p-2 rounded mt-1">{failure.stack}</pre>
+                    <pre className="text-xs p-2 rounded mt-1" style={{ background: "var(--ef-content-primary-background-color)" }}>
+                        {failure.stack}
+                    </pre>
                 </details>
             )}
-        </div>
+        </EfPanel>
     );
 }
