@@ -136,7 +136,7 @@ export async function main(
                 customCommand,
             });
             await hooker.reset();
-            runner.start(mochaCmd);
+            await runner.start(mochaCmd);
             session.markRunning(cmd.spec);
             orch.start(500);
 
@@ -159,7 +159,7 @@ export async function main(
             if (agentSession) {
                 agentSession.on("assistant.message", (ev: any) => {
                     const content: string = ev?.data?.content ?? "";
-                    if (content) hub.broadcast({ type: "chat_final", content });
+                    if (content && !aborting) hub.broadcast({ type: "chat_final", content });
                 });
                 agentSession.on("command.execute", (ev: any) => {
                     const name: string = ev?.data?.name ?? ev?.data?.tool ?? "tool";
@@ -247,7 +247,7 @@ export async function main(
                 aborting = true;
                 try { await currentAgentSession.abort(); } catch { /* ignore */ }
             }
-            runner.kill();
+            await runner.kill();
             orch.stop();
             session.reset();
         }

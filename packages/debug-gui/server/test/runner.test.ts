@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildMochaCommand, BUNDLED_HOOK_PATH } from "../src/runner.js";
+import { buildMochaCommand, BUNDLED_HOOK_PATH, killTree } from "../src/runner.js";
 
 describe("buildMochaCommand", () => {
     it("defaults to npx mocha and injects WALKTHROUGH_PORT", () => {
@@ -50,5 +50,18 @@ describe("buildMochaCommand", () => {
         const requires = cmd.args.filter((a) => a === "--require");
         expect(requires.length).toBe(1);
         expect(cmd.args[cmd.args.length - 1]).toBe(BUNDLED_HOOK_PATH);
+    });
+});
+
+describe("killTree", () => {
+    it("resolves for undefined pid without invoking tree-kill", async () => {
+        await expect(killTree(undefined)).resolves.toBeUndefined();
+    });
+
+    it("resolves (never rejects) for a nonexistent pid — idempotent double-kill", async () => {
+        // 2^31 - 1 is guaranteed not to be a live pid on any OS we target.
+        // tree-kill will surface an error to its callback, but we swallow
+        // it so Stop + next-run-start can both call killTree safely.
+        await expect(killTree(2 ** 31 - 1)).resolves.toBeUndefined();
     });
 });
