@@ -1,6 +1,11 @@
 {
   "name": "debuggig-tools",
   "private": true,
+  "packageManager": "npm@11.12.1",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=11.5.1"
+  },
   "workspaces": [
     "packages/*",
     "packages/debug-gui/server",
