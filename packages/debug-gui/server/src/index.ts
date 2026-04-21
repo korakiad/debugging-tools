@@ -1,6 +1,5 @@
 import http from "http";
 import { WebSocketServer } from "ws";
-import open from "open";
 import path from "path";
 import express from "express";
 import { fileURLToPath } from "url";
@@ -16,6 +15,7 @@ import { buildSessionConfig } from "./agent.js";
 import { makeEditFileTool } from "./tools/editFile.js";
 import { makePickElementTool } from "./tools/pickElement.js";
 import { captureScreenshot, SCREENSHOT_DIR } from "./screenshot.js";
+import { launchAppMode } from "./launcher.js";
 import { CopilotClient } from "@github/copilot-sdk";
 
 export const VERSION = "0.0.1";
@@ -253,10 +253,19 @@ export async function main(
         }
     });
 
-    httpServer.listen(port, () => {
+    httpServer.listen(port, async () => {
         const url = `http://localhost:${port}`;
         console.log(`Debug GUI ready at ${url}`);
-        open(url).catch(() => console.log(`Open ${url} in your browser`));
+        const result = await launchAppMode(url, {
+            disabled: process.env.DEBUG_GUI_NO_OPEN === "1",
+        });
+        if (result.mode === "skipped") {
+            console.log(`Open ${url} in your browser (auto-launch disabled by DEBUG_GUI_NO_OPEN)`);
+        } else if (result.mode === "fallback") {
+            console.log(`Opened in default browser (no Chromium-based browser found for app mode)`);
+        } else {
+            console.log(`Launched in app mode: ${result.browserPath}`);
+        }
     });
 }
 

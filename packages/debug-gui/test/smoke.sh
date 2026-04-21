@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Start server in background (assumes builds done)
 PORT=5556
-PORT=$PORT node packages/debug-gui/bin/debug-gui.js &
+PORT=$PORT DEBUG_GUI_NO_OPEN=1 node packages/debug-gui/bin/debug-gui.js &
 PID=$!
 trap "kill $PID 2>/dev/null || true" EXIT
 sleep 3
