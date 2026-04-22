@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Do Not Read
+
+- `architect.md` (repo root) — human-only design notes maintained by the developer. AI sessions must not open, read, or cite this file. If the user asks about architecture, use the summaries in this CLAUDE.md and the source code; do not source from `architect.md`.
+
 ## What This Is
 
 A Claude Code skill system for collaborative E2E test debugging. Two skills plus a debug GUI:
@@ -47,20 +51,26 @@ node -c path/to/file.js
 
 ## Architecture
 
-### Walkthrough Session Flow (v2 — HTTP IPC)
-1. Agent auto-detects framework (Mocha + WDIO, wrapper pattern, page object layout, selector strategy)
-2. Runs mocha with `WALKTHROUGH_PORT=<port>` env var — decorator injects hooks automatically
-3. On test failure: hook updates HTTP state to `paused`, blocks execution
-4. Agent polls `GET /status`, reads `GET /paused` for failure details
-5. Agent attaches to app via `playwright-cli attach --cdp=http://localhost:9222`, inspects live DOM
-6. Agent asks QA: real bug or environment issue? Applies fix if approved
-7. Agent sends `POST /continue` to resume — hook unblocks
-8. Repeats until status is `done`. No file cleanup needed.
+### Two distinct walkthrough contexts
 
-### HTTP IPC Endpoints (`http://localhost:<WALKTHROUGH_PORT>`)
-- `GET /status` — `{"state":"running|paused|done", ...}`
-- `GET /paused` — failure details (test name, file, error, stack)
-- `POST /continue` — signal hook to resume
+- **Standalone skill** (`.claude/skills/walkthrough/`) — used when a developer invokes walkthrough from Claude Code CLI without the GUI. Still uses the v1 filesystem protocol (`.walkthrough/status.json`, `.walkthrough/paused.json`, `.walkthrough/continue`). The hook is invoked via `--require` and activated by `WALKTHROUGH_PORT` env var (despite the name, current skill impl is filesystem-based).
+- **Bundled in debug-gui** (`packages/debug-gui/server/runtime/walkthrough-hooks.cjs`) — v2 HTTP IPC, hook-as-client design. The hook POSTs state to the debug-gui Express server and polls for continue. Parent-death detection via `process.kill(DEBUG_GUI_PID, 0)` polling (LSP-style). Exit code 187 on bail.
+
+### Walkthrough Session Flow (debug-gui v2 — HTTP IPC)
+1. QA clicks Run in the GUI; server spawns mocha with `DEBUG_GUI_PORT=<serverPort>` + `DEBUG_GUI_PID=<process.pid>` in env
+2. `--require runtime/walkthrough-hooks.cjs` attaches Mocha Root Hooks
+3. Hook `beforeAll` POSTs `/hook/status {state:"running"}` + starts 500ms watchdog
+4. On test failure: hook POSTs `/hook/paused` with failure info, then polls `GET /hook/should-continue`
+5. Server's Orchestrator polls `HookerClient.getStatus()` (in-process), emits session events → WS broadcast → UI pauses
+6. Copilot agent session gets the failure info inlined in its prompt (no longer reads `.walkthrough/paused.json`), inspects app via playwright-cli CDP, proposes edits
+7. QA clicks Continue → `hooker.postContinue()` flips flag → hook's next `GET /hook/should-continue` returns `{shouldContinue:true}` → hook resumes
+8. Throughout: hook's watchdog pings `/hook/heartbeat` every 500ms AND probes `process.kill(DEBUG_GUI_PID, 0)`. If 3 HTTP fails OR OS-confirmed dead pid → `shouldAbort()` returns `{code:187, message}` → `process.exit(187)`
+
+### HTTP IPC Endpoints (debug-gui server, `http://127.0.0.1:<DEBUG_GUI_PORT>`)
+- `POST /hook/status` — body: `{state, startedAt?, pausedAt?, resumedAt?, finishedAt?}`
+- `POST /hook/paused` — body: `{test, file, error, stack, suite?, duration?, pausedAt?}` (sets state to paused)
+- `POST /hook/heartbeat` — body: `{pid, at}` — updates `lastHeartbeatAt`
+- `GET /hook/should-continue` — returns `{shouldContinue: boolean}`, flag is consume-once
 
 ### Debug GUI (`packages/debug-gui/`)
 Two workspaces under a monorepo root:
@@ -75,7 +85,7 @@ Dev: `vite` on `:5555` proxies `/api` + `/ws` to backend on `:5556`. Prod: backe
 
 ## Conventions
 
-- **Walkthrough** — `walkthrough-hooker.js` monkey patches `Runner.prototype.run`, activated by `WALKTHROUGH_PORT` env var. No `--require` needed. Compatible with custom `bin/mocha` wrappers and Mocha ^10.2.0 / ^11.0.0.
+- **Walkthrough** — standalone skill's hook (`.claude/skills/walkthrough/walkthrough-hooks.js`) is v1 filesystem, Mocha Root Hook Plugin, activated via `WALKTHROUGH_PORT` env var (name preserved for docs compatibility). Debug-gui's bundled hook (`packages/debug-gui/server/runtime/walkthrough-hooks.cjs`) is v2 HTTP, activated via `DEBUG_GUI_PORT` + `DEBUG_GUI_PID` env vars.
 - **WDIO as library** — `remote()` for standalone sessions, not the WDIO testrunner; user's real tests use `Ws.instance.client.$()` wrapper
 - **Page objects** — getter methods returning selector strings, stored in `pages/` subdirectories
 - **CDP port 9222** — Chrome launched with `--remote-debugging-port=9222` for playwright-cli attachment

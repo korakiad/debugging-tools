@@ -43,6 +43,7 @@ interface Store {
     suites: Suite[];
     config: Record<string, unknown>;
     state: Snapshot;
+    selectedSpec: string | null;
     chatMessages: Array<{ role: "assistant" | "user"; content: string }>;
     pendingDiff: Diff | null;
     pendingPick: Pick | null;
@@ -57,6 +58,7 @@ export const useStore = create<Store>((set) => ({
     suites: [],
     config: {},
     state: { state: "idle" },
+    selectedSpec: null,
     chatMessages: [],
     pendingDiff: null,
     pendingPick: null,

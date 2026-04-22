@@ -13,16 +13,64 @@ export default function App() {
     const { send } = useWebSocket();
     const suites = useStore((s) => s.suites);
     const state = useStore((s) => s.state);
+    const selectedSpec = useStore((s) => s.selectedSpec);
     const diff = useStore((s) => s.pendingDiff);
     const pick = useStore((s) => s.pendingPick);
 
+    // TODO(you): decide the exact enable rules for Start and Stop.
+    //
+    // Context: the server supports {type:"run", spec} and {type:"cancel"}.
+    //   - "cancel" kills the mocha runner, aborts the agent, and resets
+    //     session to "idle" — it works whether state is "running" OR "paused".
+    //   - A paused test still has a live mocha process waiting on the
+    //     should-continue flag, so stopping from "paused" is legitimate
+    //     (it just bails the whole suite instead of resuming one test).
+    //
+    // Trade-off to decide:
+    //   (A) Strict  — Start only when a spec is selected AND state is
+    //                 "idle" or "done". Stop only when "running" or "paused".
+    //                 Clear, no surprises. (5-10 lines below as a starting point.)
+    //   (B) Lenient — Start also allowed when "done" re-runs the last
+    //                 selection without requiring re-click; Stop also allowed
+    //                 any time a runner is alive (incl. some transitional states).
+    //
+    // Pick what fits QA's workflow and edit the two booleans below.
+    const canStart = !!selectedSpec && (state.state === "idle" || state.state === "done");
+    const canStop = state.state === "running" || state.state === "paused";
+
     return (
         <div className="flex h-screen">
-            <TestTree suites={suites} onRun={(spec) => send({ type: "run", spec })} />
+            <TestTree
+                suites={suites}
+                selectedSpec={selectedSpec}
+                onSelect={(spec) => useStore.setState({ selectedSpec: spec })}
+            />
             <main className="flex-1 p-4 overflow-auto space-y-4">
                 <div className="flex items-center gap-3">
+                    <EfButton
+                        cta
+                        disabled={!canStart || undefined}
+                        onClick={() => {
+                            if (canStart) send({ type: "run", spec: selectedSpec! });
+                        }}
+                    >
+                        Start
+                    </EfButton>
+                    <EfButton
+                        disabled={!canStop || undefined}
+                        onClick={() => {
+                            if (canStop) send({ type: "cancel" });
+                        }}
+                    >
+                        Stop
+                    </EfButton>
                     {state.state === "running" && <Spinner />}
                     <span>Status: {state.state}</span>
+                    {selectedSpec && (
+                        <span className="text-xs opacity-70 truncate max-w-xs" title={selectedSpec}>
+                            {selectedSpec}
+                        </span>
+                    )}
                     {state.state === "paused" && (
                         <EfButton cta onClick={() => send({ type: "continue" })}>
                             Continue

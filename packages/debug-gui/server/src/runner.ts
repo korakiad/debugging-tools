@@ -17,7 +17,10 @@ export interface CustomCommand {
 
 export interface BuildOptions {
     spec: string;
-    walkthroughPort: number;
+    // Gui server port — hook POSTs state here via HTTP.
+    guiPort: number;
+    // Gui server pid — hook polls process.kill(pid, 0) for parent-death detection.
+    guiPid: number;
     customCommand?: CustomCommand;
 }
 
@@ -41,7 +44,11 @@ export function buildMochaCommand(opts: BuildOptions): MochaCommand {
     return {
         command,
         args,
-        env: { ...process.env, WALKTHROUGH_PORT: String(opts.walkthroughPort) },
+        env: {
+            ...process.env,
+            DEBUG_GUI_PORT: String(opts.guiPort),
+            DEBUG_GUI_PID: String(opts.guiPid),
+        },
     };
 }
 

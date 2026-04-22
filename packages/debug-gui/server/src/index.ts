@@ -35,7 +35,7 @@ export async function main(
     });
 
     const session = new SessionManager();
-    const hooker = new HookerClient(cwd);
+    const hooker = new HookerClient();
     const orch = new Orchestrator(session, hooker);
     const runner = new MochaRunner();
     const hub = new WsHub();
@@ -53,6 +53,7 @@ export async function main(
     const app = createApp({
         cwd,
         loadInit: () => ({ suites, config, state: session.getState() }),
+        hooker,
     });
 
     app.get("/api/screenshot/:name", (req, res) => {
@@ -132,7 +133,8 @@ export async function main(
             if (!spec) return;
             const mochaCmd = buildMochaCommand({
                 spec,
-                walkthroughPort: config.walkthroughPort,
+                guiPort: port,
+                guiPid: process.pid,
                 customCommand,
             });
             await hooker.reset();
@@ -180,16 +182,21 @@ export async function main(
                         // sendAndWait blocks until session.idle so the spinner
                         // stays up until the agent actually finishes. Plain
                         // send() resolves as soon as the RPC is acknowledged.
+                        const f = snap.currentFailure;
                         await agentSession!.sendAndWait(
                             {
                                 prompt:
-                                    `A mocha test just failed and the walkthrough hook paused execution.\n` +
-                                    `Read .walkthrough/paused.json for full failure details ` +
-                                    `(test, file, error, stack). Follow the walkthrough SKILL: ` +
-                                    `inspect the live app via playwright-cli (CDP port ${config.cdp.port}) ` +
-                                    `to find the correct selector/fix, then call edit_file with the proposed change. ` +
-                                    `After QA approves or rejects, write .walkthrough/continue (empty file) ` +
-                                    `to resume the test runner.`,
+                                    `A mocha test just failed and the walkthrough hook paused execution.\n\n` +
+                                    `Failure details:\n` +
+                                    `  test:  ${f.test}\n` +
+                                    `  suite: ${f.suite ?? "(none)"}\n` +
+                                    `  file:  ${f.file}\n` +
+                                    `  error: ${f.error}\n` +
+                                    `  stack:\n${f.stack}\n\n` +
+                                    `Follow the walkthrough SKILL: inspect the live app via playwright-cli ` +
+                                    `(CDP port ${config.cdp.port}) to find the correct selector/fix, ` +
+                                    `then call edit_file with the proposed change. ` +
+                                    `The QA operator will click Continue in the GUI to resume the test runner.`,
                             },
                             config.agent.idleTimeoutMs,
                         );

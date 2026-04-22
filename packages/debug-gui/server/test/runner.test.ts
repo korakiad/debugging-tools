@@ -2,13 +2,15 @@ import { describe, it, expect } from "vitest";
 import { buildMochaCommand, BUNDLED_HOOK_PATH, killTree } from "../src/runner.js";
 
 describe("buildMochaCommand", () => {
-    it("defaults to npx mocha and injects WALKTHROUGH_PORT", () => {
+    it("defaults to npx mocha and injects DEBUG_GUI_PORT + DEBUG_GUI_PID", () => {
         const cmd = buildMochaCommand({
             spec: "test/login.spec.js",
-            walkthroughPort: 3456,
+            guiPort: 5555,
+            guiPid: 12345,
         });
         expect(cmd.command).toBe("npx");
-        expect(cmd.env.WALKTHROUGH_PORT).toBe("3456");
+        expect(cmd.env.DEBUG_GUI_PORT).toBe("5555");
+        expect(cmd.env.DEBUG_GUI_PID).toBe("12345");
         expect(cmd.args).toEqual([
             "mocha", "test/login.spec.js",
             "--require", BUNDLED_HOOK_PATH,
@@ -18,7 +20,8 @@ describe("buildMochaCommand", () => {
     it("uses custom mocha command when provided", () => {
         const cmd = buildMochaCommand({
             spec: "test/login.spec.js",
-            walkthroughPort: 3456,
+            guiPort: 5555,
+            guiPid: 1,
             customCommand: { cmd: "node", args: ["./bin/mocha"] },
         });
         expect(cmd.command).toBe("node");
@@ -31,7 +34,8 @@ describe("buildMochaCommand", () => {
     it("threads extra flags from customCommand through to mocha", () => {
         const cmd = buildMochaCommand({
             spec: "t.spec.js",
-            walkthroughPort: 3456,
+            guiPort: 5555,
+            guiPid: 1,
             customCommand: { cmd: "mocha", args: ["--timeout", "60000"] },
         });
         expect(cmd.args).toEqual([
@@ -45,7 +49,8 @@ describe("buildMochaCommand", () => {
         // Regression: forwarding used to double-load each require.
         const cmd = buildMochaCommand({
             spec: "t.spec.js",
-            walkthroughPort: 3456,
+            guiPort: 5555,
+            guiPid: 1,
         });
         const requires = cmd.args.filter((a) => a === "--require");
         expect(requires.length).toBe(1);

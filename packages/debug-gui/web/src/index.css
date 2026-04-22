@@ -30,3 +30,9 @@
     color: #fff;
     border-color: var(--ef-primary, #1429bd);
 }
+.suite-row-selected,
+.suite-row-selected:hover {
+    background: var(--ef-primary, #1429bd);
+    color: #fff;
+    border-color: var(--ef-primary, #1429bd);
+}

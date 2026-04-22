@@ -9,7 +9,6 @@ export interface DebugGuiConfig {
         spec?: string[];
     };
     cdp: { port: number };
-    walkthroughPort: number;
     discovery: { globs: string[] };
     agent: { idleTimeoutMs: number };
 }
@@ -25,7 +24,6 @@ export function loadConfig(cwd: string): DebugGuiConfig {
     return {
         mocha: pkg.mocha ?? {},
         cdp: { port: dg.cdp?.port ?? 9222 },
-        walkthroughPort: dg.walkthroughPort ?? 3456,
         discovery: { globs: dg.discovery?.globs ?? DEFAULT_GLOBS },
         agent: { idleTimeoutMs: dg.agent?.idleTimeoutMs ?? 10 * 60 * 1000 },
     };
