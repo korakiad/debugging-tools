@@ -1,2 +1,15 @@
 node_modules/
 .worktrees/
+
+# Runtime state from debug-gui / walkthrough sessions
+.walkthrough/
+.playwright-cli/
+
+# Local Claude Code settings (per-machine, not shared)
+.claude/settings.local.json
+
+# Build artifacts
+*.tgz
+
+# Human-only design notes (see CLAUDE.md "Do Not Read" rule)
+architect.md
