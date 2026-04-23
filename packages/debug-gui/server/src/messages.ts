@@ -13,13 +13,15 @@ export type ServerEvent =
     | { type: "chat_final"; content: string }
     | { type: "diff"; reqId: string; file: string; oldCode: string; newCode: string }
     | { type: "pick"; reqId: string; imageUrl: string; hint: string }
+    | { type: "config_updated"; config: unknown }
     | { type: "error"; message: string };
 
 export type ClientCommand =
-    | { type: "run"; spec: string }
+    | { type: "run"; spec: string; skipPreRun?: boolean }
     | { type: "cancel" }
     | { type: "continue" }
     | { type: "chat_send"; prompt: string }
     | { type: "agent_abort" }
     | { type: "diff_decision"; reqId: string; action: "approved" | "rejected"; reason?: string }
-    | { type: "pick_result"; reqId: string; selector: string; attrs: Record<string, unknown> };
+    | { type: "pick_result"; reqId: string; selector: string; attrs: Record<string, unknown> }
+    | { type: "settings_update"; preRun: string };
