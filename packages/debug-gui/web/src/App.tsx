@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { useStore } from "./state/store";
 import { TestTree } from "./components/TestTree";
@@ -7,6 +8,7 @@ import { PickerOverlay } from "./components/PickerOverlay";
 import { ChatDrawer } from "./components/ChatDrawer";
 import { MochaLogPanel } from "./components/MochaLogPanel";
 import { Spinner } from "./components/Spinner";
+import { PreRunRow } from "./components/PreRunRow";
 import { EfButton } from "./ui";
 
 export default function App() {
@@ -16,6 +18,21 @@ export default function App() {
     const selectedSpec = useStore((s) => s.selectedSpec);
     const diff = useStore((s) => s.pendingDiff);
     const pick = useStore((s) => s.pendingPick);
+    const config = useStore((s) => s.config) as { preRun?: string };
+    const savedPreRun = config.preRun ?? "";
+    const [skipPreRun, setSkipPreRun] = useState<boolean>(() => {
+        return localStorage.getItem("debugGui.skipPreRun") === "1";
+    });
+    const [preRunDirty, setPreRunDirty] = useState(false);
+
+    useEffect(() => {
+        localStorage.setItem("debugGui.skipPreRun", skipPreRun ? "1" : "0");
+    }, [skipPreRun]);
+
+    // Show the row whenever preRun is configured. First-run setup (no value)
+    // is not exposed here; dev commits initial value OR user triggers the
+    // row by setting preRun via a one-off settings command later.
+    const showPreRun = savedPreRun.length > 0;
 
     // TODO(you): decide the exact enable rules for Start and Stop.
     //
@@ -35,7 +52,7 @@ export default function App() {
     //                 any time a runner is alive (incl. some transitional states).
     //
     // Pick what fits QA's workflow and edit the two booleans below.
-    const canStart = !!selectedSpec && (state.state === "idle" || state.state === "done");
+    const canStart = !!selectedSpec && (state.state === "idle" || state.state === "done") && !preRunDirty;
     const canStop = state.state === "running" || state.state === "paused";
 
     return (
@@ -51,7 +68,7 @@ export default function App() {
                         cta
                         disabled={!canStart || undefined}
                         onClick={() => {
-                            if (canStart) send({ type: "run", spec: selectedSpec! });
+                            if (canStart) send({ type: "run", spec: selectedSpec!, skipPreRun });
                         }}
                     >
                         Start
@@ -65,11 +82,22 @@ export default function App() {
                         Stop
                     </EfButton>
                     {state.state === "running" && <Spinner />}
+                    {state.state === "pre-running" && <Spinner />}
                     <span>Status: {state.state}</span>
                     {selectedSpec && (
                         <span className="text-xs opacity-70 truncate max-w-xs" title={selectedSpec}>
                             {selectedSpec}
                         </span>
+                    )}
+                    {showPreRun && (
+                        <PreRunRow
+                            saved={savedPreRun}
+                            skip={skipPreRun}
+                            disabled={state.state === "running" || state.state === "pre-running" || state.state === "paused"}
+                            onSave={(preRun) => send({ type: "settings_update", preRun })}
+                            onSkipChange={setSkipPreRun}
+                            onDirtyChange={setPreRunDirty}
+                        />
                     )}
                     {state.state === "paused" && (
                         <EfButton cta onClick={() => send({ type: "continue" })}>
