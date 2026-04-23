@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type SessionState = "idle" | "running" | "paused" | "done";
+export type SessionState = "idle" | "pre-running" | "running" | "paused" | "done";
 
 export interface Suite {
     relPath: string;
@@ -75,8 +75,11 @@ export const useStore = create<Store>((set) => ({
                     agentThinking: false, agentActivity: "",
                 };
             }
+            if (e.type === "config_updated") {
+                return { config: e.config };
+            }
             if (e.type === "status") {
-                if (e.state === "running") {
+                if (e.state === "running" || e.state === "pre-running") {
                     return {
                         state: { ...s.state, state: e.state },
                         mochaLog: [], mochaExitCode: undefined,
