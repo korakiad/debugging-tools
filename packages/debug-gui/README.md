@@ -14,7 +14,7 @@ Web GUI for walkthrough E2E debug sessions. Lets non-technical QA trigger a Moch
 ## Prerequisites
 
 - Node ≥ 18
-- Chrome browser installed
+- Chrome (or Chromium-based browser) installed for your tests to drive
 - GitHub Copilot CLI authenticated (`gh auth login` + active Copilot subscription)
 - Your test project uses **Mocha + WebDriverIO standalone** (`remote()` mode, not the wdio testrunner)
 - Page objects use **getter methods** returning selector strings (so a fix takes effect on the next retry)
@@ -40,6 +40,24 @@ cd debugging-tools && npm install
 npm run build -w @debug-gui/server && npm run build -w @debug-gui/web
 # Then invoke bin with an absolute path from your test project
 ```
+
+## First-time browser setup
+
+The GUI window runs in a pure Chromium binary downloaded to `~/.cache/puppeteer/` — kept separate from your test browser. This is needed because many test cleanup hooks indiscriminately kill `chrome.exe` / `msedge.exe`, which would also nuke the GUI window mid-session. The bundled binary gets hard-linked to `dgui-ui.exe` (zero extra disk on NTFS/APFS/ext4) so its process image name doesn't match those kill filters.
+
+Run once after install:
+
+```bash
+# From a global tarball install:
+debug-gui-setup-browser
+
+# From a clone:
+npm run setup-browser
+```
+
+This downloads ~150MB. Override the cache location with `PUPPETEER_CACHE_DIR=/some/path` before running setup-browser AND before launching the GUI.
+
+If you skip this step, the GUI falls back to system Chrome/Edge — works fine until your test setup kills it.
 
 ## Usage
 

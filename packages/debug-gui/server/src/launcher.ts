@@ -1,5 +1,5 @@
 import { spawn } from "child_process";
-import { existsSync } from "fs";
+import { copyFileSync, existsSync, linkSync } from "fs";
 import os from "os";
 import path from "path";
 import open from "open";
@@ -9,6 +9,7 @@ export type LaunchMode = "app" | "fallback" | "skipped";
 export interface LaunchResult {
     mode: LaunchMode;
     browserPath?: string;
+    renamed?: boolean;
 }
 
 export interface FindBrowserDeps {
@@ -73,6 +74,57 @@ export function findChromiumBrowser(deps: FindBrowserDeps = {}): string | null {
     return null;
 }
 
+export interface RenamedChromiumDeps {
+    fileExists?: (p: string) => boolean;
+    link?: (existing: string, target: string) => void;
+    copy?: (src: string, dest: string) => void;
+}
+
+export function defaultPuppeteerCacheDir(): string {
+    return process.env.PUPPETEER_CACHE_DIR ?? path.join(os.homedir(), ".cache", "puppeteer");
+}
+
+export async function findInstalledChromium(cacheDir: string = defaultPuppeteerCacheDir()): Promise<string | null> {
+    try {
+        const { getInstalledBrowsers, Browser } = await import("@puppeteer/browsers");
+        const installed = await getInstalledBrowsers({ cacheDir });
+        const chromiumBuilds = installed
+            .filter((b) => b.browser === Browser.CHROMIUM)
+            .sort((a, b) => Number(b.buildId) - Number(a.buildId));
+        const latest = chromiumBuilds[0];
+        return latest && existsSync(latest.executablePath) ? latest.executablePath : null;
+    } catch {
+        return null;
+    }
+}
+
+export function ensureRenamedChromium(
+    sourcePath: string,
+    deps: RenamedChromiumDeps = {},
+): string | null {
+    const fileExists = deps.fileExists ?? existsSync;
+    const link = deps.link ?? linkSync;
+    const copy = deps.copy ?? copyFileSync;
+
+    const dir = path.dirname(sourcePath);
+    const ext = path.extname(sourcePath);
+    const targetPath = path.join(dir, `dgui-ui${ext}`);
+
+    if (fileExists(targetPath)) return targetPath;
+
+    try {
+        link(sourcePath, targetPath);
+        return targetPath;
+    } catch {
+        try {
+            copy(sourcePath, targetPath);
+            return targetPath;
+        } catch {
+            return null;
+        }
+    }
+}
+
 export interface LaunchOpts {
     disabled?: boolean;
     windowSize?: { width: number; height: number };
@@ -81,14 +133,25 @@ export interface LaunchOpts {
 export async function launchAppMode(url: string, opts: LaunchOpts = {}): Promise<LaunchResult> {
     if (opts.disabled) return { mode: "skipped" };
 
-    const browser = findChromiumBrowser();
+    let browser: string | null = null;
+    let renamed = false;
+    const installedChromium = await findInstalledChromium();
+    if (installedChromium) {
+        const renamedPath = ensureRenamedChromium(installedChromium);
+        if (renamedPath) {
+            browser = renamedPath;
+            renamed = true;
+        }
+    }
+    if (!browser) browser = findChromiumBrowser();
+
     if (!browser) {
         await open(url).catch(() => { /* user will open manually */ });
         return { mode: "fallback" };
     }
 
     const { width = 1600, height = 1000 } = opts.windowSize ?? {};
-    const profileDir = path.join(os.tmpdir(), "debug-gui-chrome-profile");
+    const profileDir = path.join(os.tmpdir(), "debug-gui-browser-profile");
     const args = [
         `--app=${url}`,
         `--user-data-dir=${profileDir}`,
@@ -102,5 +165,5 @@ export async function launchAppMode(url: string, opts: LaunchOpts = {}): Promise
     child.on("error", () => { /* spawn failed post-launch; already returned */ });
     child.unref();
 
-    return { mode: "app", browserPath: browser };
+    return { mode: "app", browserPath: browser, renamed };
 }

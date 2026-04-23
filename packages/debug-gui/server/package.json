@@ -8,10 +8,12 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsx watch src/index.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "setup-browser": "node scripts/install-browser.mjs"
   },
   "dependencies": {
     "@github/copilot-sdk": "^0.2.0",
+    "@puppeteer/browsers": "^2.4.0",
     "express": "^4.19.2",
     "glob": "^10.3.0",
     "open": "^10.1.0",
