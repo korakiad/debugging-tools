@@ -4,7 +4,7 @@ import path from "path";
 import express from "express";
 import { fileURLToPath } from "url";
 import { existsSync } from "fs";
-import { loadConfig } from "./config.js";
+import { loadConfig, saveConfig } from "./config.js";
 import { discoverSuites } from "./discovery.js";
 import { SessionManager } from "./session.js";
 import { HookerClient } from "./hooker.js";
@@ -257,6 +257,16 @@ export async function main(
             await runner.kill();
             orch.stop();
             session.reset();
+        }
+        if (cmd.type === "settings_update") {
+            try {
+                const nextCfg = saveConfig(cwd, { preRun: cmd.preRun });
+                // Mutate the captured config so downstream run-handler sees the new value.
+                Object.assign(config, nextCfg);
+                hub.broadcast({ type: "config_updated", config: nextCfg });
+            } catch (e: any) {
+                hub.broadcast({ type: "error", message: `Save settings: ${e?.message ?? e}` });
+            }
         }
     });
 
