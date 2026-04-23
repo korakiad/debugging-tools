@@ -78,8 +78,7 @@ export default function App() {
                     >
                         Stop
                     </EfButton>
-                    {state.state === "running" && <Spinner />}
-                    {state.state === "pre-running" && <Spinner />}
+                    {(state.state === "running" || state.state === "pre-running") && <Spinner />}
                     <span>Status: {state.state}</span>
                     {selectedSpec && (
                         <span className="text-xs opacity-70 truncate max-w-xs" title={selectedSpec}>

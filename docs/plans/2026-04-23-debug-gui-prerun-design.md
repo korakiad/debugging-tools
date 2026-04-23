@@ -82,13 +82,15 @@ enabled OR the user is explicitly configuring for the first time:
 
 ### Server endpoints
 
-One new HTTP endpoint on the existing Express server:
+One new WS client command on the existing hub (no new HTTP route —
+plan Task 6 collapsed this onto the WS protocol for consistency with
+`run`, `cancel`, `continue` etc. which all travel the same channel):
 
-- `POST /api/settings` — body `{ preRun: string }`. Server reads
-  `package.json` at `cwd`, sets/removes `debug-gui.preRun`, writes back
-  preserving indent. Responds with the new `DebugGuiConfig`. Broadcasts
-  `{ type: "config_updated", config }` over WS so any other open tabs
-  reflect the change.
+- `settings_update` (client → server) — body `{ preRun: string }`.
+  Server reads `package.json` at `cwd`, sets/removes `debug-gui.preRun`,
+  writes back preserving indent, re-loads config, and broadcasts
+  `{ type: "config_updated", config }` so any other open tabs reflect
+  the change.
 
 ### Run flow with pre-run
 
