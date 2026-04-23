@@ -23,7 +23,7 @@ export interface ShellSpawnOptions {
 // users mean when they type "npm run build && something".
 export function spawnShellCommand(cmd: string, opts: ShellSpawnOptions): Promise<number> {
     return new Promise((resolve) => {
-        const proc = spawn(cmd, { env: opts.env, shell: true });
+        const proc = spawn(cmd, { env: opts.env, shell: true, stdio: ["ignore", "pipe", "pipe"] });
         if (proc.pid && opts.onSpawn) opts.onSpawn(proc.pid);
         proc.stdout?.on("data", (d) => opts.onStdout(d.toString()));
         proc.stderr?.on("data", (d) => opts.onStderr(d.toString()));

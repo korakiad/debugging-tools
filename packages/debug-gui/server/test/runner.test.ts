@@ -92,4 +92,16 @@ describe("spawnShellCommand", () => {
         });
         expect(code).toBe(2);
     });
+
+    it("closes stdin so commands that read stdin exit immediately", async () => {
+        // A command that reads from stdin and echoes it back. With stdin
+        // closed, the read returns EOF and the process exits. Without
+        // closing stdin, this would hang forever waiting for input.
+        // Use `node -e` so we get identical behavior on Windows + POSIX.
+        const code = await spawnShellCommand(
+            `node -e "process.stdin.on('data',()=>{});process.stdin.on('end',()=>process.exit(0));process.stdin.resume()"`,
+            { env: process.env, onStdout: () => {}, onStderr: () => {} }
+        );
+        expect(code).toBe(0);
+    }, 5000);
 });
