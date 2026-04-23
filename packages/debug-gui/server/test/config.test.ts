@@ -28,4 +28,31 @@ describe("loadConfig", () => {
         expect(cfg.cdp.port).toBe(9222);
         expect(cfg.discovery.globs).toContain("test/**/*.spec.{js,ts}");
     });
+
+    it("reads preRun from debug-gui section when set", () => {
+        const dir = mkdtempSync(join(tmpdir(), "dbg-"));
+        writeFileSync(join(dir, "package.json"), JSON.stringify({
+            "debug-gui": { preRun: "npm run build" }
+        }));
+        const cfg = loadConfig(dir);
+        expect(cfg.preRun).toBe("npm run build");
+    });
+
+    it("returns undefined preRun when missing", () => {
+        const dir = mkdtempSync(join(tmpdir(), "dbg-"));
+        writeFileSync(join(dir, "package.json"), JSON.stringify({}));
+        const cfg = loadConfig(dir);
+        expect(cfg.preRun).toBeUndefined();
+    });
+
+    it("returns undefined preRun when empty string", () => {
+        // Empty string means "feature off" — saveConfig removes the key, but
+        // defend in the loader too for old configs / partial writes.
+        const dir = mkdtempSync(join(tmpdir(), "dbg-"));
+        writeFileSync(join(dir, "package.json"), JSON.stringify({
+            "debug-gui": { preRun: "" }
+        }));
+        const cfg = loadConfig(dir);
+        expect(cfg.preRun).toBeUndefined();
+    });
 });

@@ -11,6 +11,7 @@ export interface DebugGuiConfig {
     cdp: { port: number };
     discovery: { globs: string[] };
     agent: { idleTimeoutMs: number };
+    preRun?: string;
 }
 
 const DEFAULT_GLOBS = [
@@ -26,5 +27,6 @@ export function loadConfig(cwd: string): DebugGuiConfig {
         cdp: { port: dg.cdp?.port ?? 9222 },
         discovery: { globs: dg.discovery?.globs ?? DEFAULT_GLOBS },
         agent: { idleTimeoutMs: dg.agent?.idleTimeoutMs ?? 10 * 60 * 1000 },
+        preRun: typeof dg.preRun === "string" && dg.preRun.length > 0 ? dg.preRun : undefined,
     };
 }
