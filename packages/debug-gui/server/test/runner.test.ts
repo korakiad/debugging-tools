@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildMochaCommand, BUNDLED_HOOK_PATH, killTree } from "../src/runner.js";
+import { buildMochaCommand, BUNDLED_HOOK_PATH, killTree, spawnShellCommand } from "../src/runner.js";
 
 describe("buildMochaCommand", () => {
     it("defaults to npx mocha and injects DEBUG_GUI_PORT + DEBUG_GUI_PID", () => {
@@ -68,5 +68,28 @@ describe("killTree", () => {
         // tree-kill will surface an error to its callback, but we swallow
         // it so Stop + next-run-start can both call killTree safely.
         await expect(killTree(2 ** 31 - 1)).resolves.toBeUndefined();
+    });
+});
+
+describe("spawnShellCommand", () => {
+    it("runs a simple echo and resolves with exit code 0", async () => {
+        const chunks: string[] = [];
+        const code = await spawnShellCommand("echo hello-prerun", {
+            env: process.env,
+            onStdout: (t) => chunks.push(t),
+            onStderr: () => {},
+        });
+        expect(code).toBe(0);
+        expect(chunks.join("")).toMatch(/hello-prerun/);
+    });
+
+    it("resolves with the non-zero exit code of a failing command", async () => {
+        // `exit 2` works under cmd.exe and sh alike (shell: true handles both).
+        const code = await spawnShellCommand("exit 2", {
+            env: process.env,
+            onStdout: () => {},
+            onStderr: () => {},
+        });
+        expect(code).toBe(2);
     });
 });

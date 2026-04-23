@@ -10,6 +10,28 @@ export const BUNDLED_HOOK_PATH = fileURLToPath(
     new URL("../runtime/walkthrough-hooks.cjs", import.meta.url)
 );
 
+export interface ShellSpawnOptions {
+    env: NodeJS.ProcessEnv;
+    onStdout: (text: string) => void;
+    onStderr: (text: string) => void;
+    onSpawn?: (pid: number) => void;
+}
+
+// Runs an arbitrary shell command string (e.g. "npm run build"). Unlike
+// MochaRunner, this is single-shot — it resolves when the process exits.
+// shell:true so the command string is parsed by cmd.exe / sh, which is what
+// users mean when they type "npm run build && something".
+export function spawnShellCommand(cmd: string, opts: ShellSpawnOptions): Promise<number> {
+    return new Promise((resolve) => {
+        const proc = spawn(cmd, { env: opts.env, shell: true });
+        if (proc.pid && opts.onSpawn) opts.onSpawn(proc.pid);
+        proc.stdout?.on("data", (d) => opts.onStdout(d.toString()));
+        proc.stderr?.on("data", (d) => opts.onStderr(d.toString()));
+        proc.on("exit", (code) => resolve(code ?? 1));
+        proc.on("error", () => resolve(1));
+    });
+}
+
 export interface CustomCommand {
     cmd: string;
     args: string[];
