@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { useStore } from "./state/store";
 import { TestTree } from "./components/TestTree";
@@ -20,14 +20,11 @@ export default function App() {
     const pick = useStore((s) => s.pendingPick);
     const config = useStore((s) => s.config) as { preRun?: string };
     const savedPreRun = config.preRun ?? "";
-    const [skipPreRun, setSkipPreRun] = useState<boolean>(() => {
-        return localStorage.getItem("debugGui.skipPreRun") === "1";
-    });
+    // Skip defaults to unchecked on every reload. Persisting it would let a
+    // user accidentally skip builds session after session; the design calls
+    // out "always run build" as the safe default.
+    const [skipPreRun, setSkipPreRun] = useState(false);
     const [preRunDirty, setPreRunDirty] = useState(false);
-
-    useEffect(() => {
-        localStorage.setItem("debugGui.skipPreRun", skipPreRun ? "1" : "0");
-    }, [skipPreRun]);
 
     // Show the row whenever preRun is configured. First-run setup (no value)
     // is not exposed here; dev commits initial value OR user triggers the
