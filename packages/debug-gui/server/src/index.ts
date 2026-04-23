@@ -259,6 +259,10 @@ export async function main(
             session.reset();
         }
         if (cmd.type === "settings_update") {
+            if (typeof cmd.preRun !== "string") {
+                hub.broadcast({ type: "error", message: "Save settings: preRun must be a string" });
+                return;
+            }
             try {
                 const nextCfg = saveConfig(cwd, { preRun: cmd.preRun });
                 // Mutate the captured config so downstream run-handler sees the new value.

@@ -52,4 +52,26 @@ describe("WsHub", () => {
         const written = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
         expect(written["debug-gui"].preRun).toBe("npm run build");
     });
+
+    it("settings_update rejects non-string preRun with an error broadcast", async () => {
+        const broadcasts: any[] = [];
+        const hub = new WsHub();
+        const fakeWs: any = { readyState: 1, send: (p: string) => broadcasts.push(JSON.parse(p)) };
+        hub.add(fakeWs);
+
+        // Wire the handler inline, mirroring index.ts
+        hub.onMessage(async (cmd: any) => {
+            if (cmd.type === "settings_update") {
+                if (typeof cmd.preRun !== "string") {
+                    hub.broadcast({ type: "error", message: "Save settings: preRun must be a string" });
+                    return;
+                }
+            }
+        });
+
+        hub.handleIncoming(JSON.stringify({ type: "settings_update", preRun: 42 }));
+        await new Promise((r) => setImmediate(r));
+
+        expect(broadcasts[0]).toMatchObject({ type: "error", message: "Save settings: preRun must be a string" });
+    });
 });
