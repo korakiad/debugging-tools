@@ -56,3 +56,47 @@ describe("loadConfig", () => {
         expect(cfg.preRun).toBeUndefined();
     });
 });
+
+import { saveConfig } from "../src/config.js";
+import { readFileSync } from "fs";
+
+describe("saveConfig", () => {
+    it("writes preRun into existing debug-gui block", () => {
+        const dir = mkdtempSync(join(tmpdir(), "dbg-"));
+        writeFileSync(join(dir, "package.json"), JSON.stringify({
+            name: "x",
+            "debug-gui": { cdp: { port: 9222 } }
+        }, null, 2));
+        saveConfig(dir, { preRun: "npm run build" });
+        const written = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+        expect(written["debug-gui"].preRun).toBe("npm run build");
+        expect(written["debug-gui"].cdp.port).toBe(9222); // preserved
+        expect(written.name).toBe("x"); // preserved
+    });
+
+    it("creates debug-gui block when absent", () => {
+        const dir = mkdtempSync(join(tmpdir(), "dbg-"));
+        writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "x" }, null, 2));
+        saveConfig(dir, { preRun: "npm run build" });
+        const written = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+        expect(written["debug-gui"].preRun).toBe("npm run build");
+    });
+
+    it("removes preRun key when value is empty string", () => {
+        const dir = mkdtempSync(join(tmpdir(), "dbg-"));
+        writeFileSync(join(dir, "package.json"), JSON.stringify({
+            "debug-gui": { preRun: "npm run build", cdp: { port: 9222 } }
+        }, null, 2));
+        saveConfig(dir, { preRun: "" });
+        const written = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+        expect("preRun" in written["debug-gui"]).toBe(false);
+        expect(written["debug-gui"].cdp.port).toBe(9222); // preserved
+    });
+
+    it("returns the freshly-loaded DebugGuiConfig", () => {
+        const dir = mkdtempSync(join(tmpdir(), "dbg-"));
+        writeFileSync(join(dir, "package.json"), JSON.stringify({}, null, 2));
+        const cfg = saveConfig(dir, { preRun: "npm run build" });
+        expect(cfg.preRun).toBe("npm run build");
+    });
+});

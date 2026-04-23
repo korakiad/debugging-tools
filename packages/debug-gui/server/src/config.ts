@@ -1,4 +1,4 @@
-import { readFileSync } from "fs";
+import { readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
 export interface DebugGuiConfig {
@@ -29,4 +29,30 @@ export function loadConfig(cwd: string): DebugGuiConfig {
         agent: { idleTimeoutMs: dg.agent?.idleTimeoutMs ?? 10 * 60 * 1000 },
         preRun: typeof dg.preRun === "string" && dg.preRun.length > 0 ? dg.preRun : undefined,
     };
+}
+
+export interface ConfigPatch {
+    preRun?: string;
+}
+
+// Mutates consumer's package.json["debug-gui"] by applying `patch`.
+// Empty-string values are treated as "remove this key" (keeps the on-disk
+// block minimal and is how the UI signals "turn the feature off").
+export function saveConfig(cwd: string, patch: ConfigPatch): DebugGuiConfig {
+    const pkgPath = join(cwd, "package.json");
+    const raw = readFileSync(pkgPath, "utf8");
+    const pkg = JSON.parse(raw);
+    const block = { ...(pkg["debug-gui"] ?? {}) };
+
+    if (patch.preRun !== undefined) {
+        if (patch.preRun === "") delete block.preRun;
+        else block.preRun = patch.preRun;
+    }
+
+    pkg["debug-gui"] = block;
+    // Preserve indent by sniffing the existing file; fall back to 2.
+    const indentMatch = raw.match(/^\{\n(\s+)"/);
+    const indent = indentMatch ? indentMatch[1].length : 2;
+    writeFileSync(pkgPath, JSON.stringify(pkg, null, indent) + "\n");
+    return loadConfig(cwd);
 }
