@@ -43,4 +43,27 @@ describe("store", () => {
         expect(useStore.getState().state.state).toBe("pre-running");
         expect(useStore.getState().state.currentSpec).toBe("x.spec.js");
     });
+
+    it("initializes with idle state", () => {
+        const s = useStore.getState();
+        expect(s.state.state).toBe("idle");
+    });
+
+    it("apply 'init' event populates suites", () => {
+        useStore.getState().applyEvent({
+            type: "init",
+            suites: [{ relPath: "a.spec.js", absPath: "/x/a.spec.js" }],
+            config: {} as any,
+            state: { state: "idle" },
+        });
+        expect(useStore.getState().suites[0].relPath).toBe("a.spec.js");
+    });
+
+    it("apply 'paused' event sets failure", () => {
+        useStore.getState().applyEvent({
+            type: "paused",
+            failure: { test: "t", file: "a.spec.js", error: "e", stack: "" },
+        });
+        expect(useStore.getState().state.currentFailure?.test).toBe("t");
+    });
 });
