@@ -99,6 +99,7 @@ export async function main(
     let currentAgentSession: Awaited<ReturnType<typeof copilot.createSession>> | null = null;
     let aborting = false;
     let preRunPid: number | undefined;
+    let preRunCanceled = false;
 
     const tools = [
         makeEditFileTool({
@@ -135,19 +136,30 @@ export async function main(
             // End-to-end coverage: test/smoke.sh — pre-run happy-path + failure paths (Task 10)
             // ── Pre-run step ─────────────────────────────────────
             if (config.preRun && !cmd.skipPreRun) {
-                session.markPreRunning(cmd.spec);
-                const exitCode = await spawnShellCommand(config.preRun, {
-                    env: process.env,
-                    onSpawn: (pid) => { preRunPid = pid; },
-                    onStdout: (text) => hub.broadcast({ type: "mocha_log", stream: "stdout", text: `[pre-run] ${text}` }),
-                    onStderr: (text) => hub.broadcast({ type: "mocha_log", stream: "stderr", text: `[pre-run] ${text}` }),
-                });
-                preRunPid = undefined;
-                if (exitCode !== 0) {
-                    hub.broadcast({
-                        type: "error",
-                        message: `Pre-run failed: ${config.preRun} (exit ${exitCode})`,
+                try {
+                    session.markPreRunning(cmd.spec);
+                    const exitCode = await spawnShellCommand(config.preRun, {
+                        env: process.env,
+                        onSpawn: (pid) => { preRunPid = pid; },
+                        onStdout: (text) => hub.broadcast({ type: "mocha_log", stream: "stdout", text: `[pre-run] ${text}` }),
+                        onStderr: (text) => hub.broadcast({ type: "mocha_log", stream: "stderr", text: `[pre-run] ${text}` }),
                     });
+                    preRunPid = undefined;
+                    if (exitCode !== 0) {
+                        // Cancel handler owns the reset — don't surface a misleading "Pre-run failed".
+                        if (preRunCanceled) {
+                            preRunCanceled = false;
+                            return;
+                        }
+                        hub.broadcast({
+                            type: "error",
+                            message: `Pre-run failed: ${config.preRun} (exit ${exitCode})`,
+                        });
+                        session.reset();
+                        return;
+                    }
+                } catch (e: any) {
+                    hub.broadcast({ type: "error", message: `Pre-run error: ${e?.message ?? e}` });
                     session.reset();
                     return;
                 }
@@ -273,6 +285,7 @@ export async function main(
         }
         if (cmd.type === "cancel") {
             if (preRunPid) {
+                preRunCanceled = true;
                 await killTree(preRunPid);
                 preRunPid = undefined;
             }
