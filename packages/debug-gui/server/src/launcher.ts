@@ -137,10 +137,22 @@ export async function launchAppMode(url: string, opts: LaunchOpts = {}): Promise
     let renamed = false;
     const installedChromium = await findInstalledChromium();
     if (installedChromium) {
-        const renamedPath = ensureRenamedChromium(installedChromium);
-        if (renamedPath) {
-            browser = renamedPath;
-            renamed = true;
+        // Rename trick dodges Windows team-mocha's `killByName('chrome'/'edge')`.
+        // macOS/Linux cleanup hooks don't kill by process image name, and macOS
+        // signed .app bundles actively reject hard-linking inside them (both
+        // linkSync AND copyFileSync throw) — so skip the rename off-Windows and
+        // use the downloaded Chromium as-is. Its binary is named `Chromium`,
+        // which doesn't match Windows-style kill filters anyway.
+        if (process.platform === "win32") {
+            const renamedPath = ensureRenamedChromium(installedChromium);
+            if (renamedPath) {
+                browser = renamedPath;
+                renamed = true;
+            } else {
+                browser = installedChromium;
+            }
+        } else {
+            browser = installedChromium;
         }
     }
     if (!browser) browser = findChromiumBrowser();

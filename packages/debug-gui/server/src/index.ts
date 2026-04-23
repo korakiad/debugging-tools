@@ -272,6 +272,9 @@ export async function main(
             console.log(`Opened in default browser (no Chromium-based browser found for app mode)`);
         } else {
             console.log(`Launched in app mode: ${result.browserPath}`);
+            if (process.platform === "win32" && !result.renamed) {
+                console.warn("⚠  Could not create dgui-ui.exe hard link; GUI window may be killed by test cleanup hooks that target chrome.exe/msedge.exe.");
+            }
         }
     });
 }
