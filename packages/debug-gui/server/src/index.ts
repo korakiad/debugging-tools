@@ -8,7 +8,7 @@ import { loadConfig, saveConfig } from "./config.js";
 import { discoverSuites } from "./discovery.js";
 import { SessionManager } from "./session.js";
 import { HookerClient } from "./hooker.js";
-import { MochaRunner, buildMochaCommand } from "./runner.js";
+import { MochaRunner, buildMochaCommand, spawnShellCommand, killTree } from "./runner.js";
 import { Orchestrator } from "./orchestrator.js";
 import { createApp, WsHub } from "./server.js";
 import { buildSessionConfig } from "./agent.js";
@@ -98,6 +98,7 @@ export async function main(
     // suppress the rejection that abort() causes in sendAndWait().
     let currentAgentSession: Awaited<ReturnType<typeof copilot.createSession>> | null = null;
     let aborting = false;
+    let preRunPid: number | undefined;
 
     const tools = [
         makeEditFileTool({
@@ -131,6 +132,27 @@ export async function main(
         if (cmd.type === "run") {
             const spec = suites.find((s) => s.relPath === cmd.spec)?.absPath;
             if (!spec) return;
+            // End-to-end coverage: test/smoke.sh — pre-run happy-path + failure paths (Task 10)
+            // ── Pre-run step ─────────────────────────────────────
+            if (config.preRun && !cmd.skipPreRun) {
+                session.markPreRunning(cmd.spec);
+                const exitCode = await spawnShellCommand(config.preRun, {
+                    env: process.env,
+                    onSpawn: (pid) => { preRunPid = pid; },
+                    onStdout: (text) => hub.broadcast({ type: "mocha_log", stream: "stdout", text: `[pre-run] ${text}` }),
+                    onStderr: (text) => hub.broadcast({ type: "mocha_log", stream: "stderr", text: `[pre-run] ${text}` }),
+                });
+                preRunPid = undefined;
+                if (exitCode !== 0) {
+                    hub.broadcast({
+                        type: "error",
+                        message: `Pre-run failed: ${config.preRun} (exit ${exitCode})`,
+                    });
+                    session.reset();
+                    return;
+                }
+            }
+            // ──────────────────────────────────────────────────────
             const mochaCmd = buildMochaCommand({
                 spec,
                 guiPort: port,
@@ -250,6 +272,10 @@ export async function main(
             }
         }
         if (cmd.type === "cancel") {
+            if (preRunPid) {
+                await killTree(preRunPid);
+                preRunPid = undefined;
+            }
             if (currentAgentSession) {
                 aborting = true;
                 try { await currentAgentSession.abort(); } catch { /* ignore */ }
