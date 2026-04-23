@@ -1,6 +1,6 @@
 import { EventEmitter } from "events";
 
-export type SessionState = "idle" | "running" | "paused" | "done";
+export type SessionState = "idle" | "pre-running" | "running" | "paused" | "done";
 
 export interface FailureInfo {
     test: string;
@@ -23,6 +23,11 @@ export class SessionManager {
 
     getState(): SessionSnapshot {
         return { ...this.snapshot };
+    }
+
+    markPreRunning(spec: string): void {
+        this.snapshot = { state: "pre-running", currentSpec: spec };
+        this.events.emit("change", this.getState());
     }
 
     markRunning(spec: string): void {

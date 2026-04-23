@@ -29,4 +29,18 @@ describe("SessionManager", () => {
         s.markRunning("a.spec.js");
         expect(listener).toHaveBeenCalledTimes(1);
     });
+
+    it("markPreRunning transitions idle → pre-running with the spec", () => {
+        const s = new SessionManager();
+        s.markPreRunning("a.spec.js");
+        expect(s.getState()).toEqual({ state: "pre-running", currentSpec: "a.spec.js" });
+    });
+
+    it("markRunning after markPreRunning keeps currentSpec", () => {
+        const s = new SessionManager();
+        s.markPreRunning("a.spec.js");
+        s.markRunning("a.spec.js");
+        expect(s.getState().state).toBe("running");
+        expect(s.getState().currentSpec).toBe("a.spec.js");
+    });
 });
