@@ -61,6 +61,8 @@ export default function App() {
                 suites={suites}
                 selectedSpec={selectedSpec}
                 onSelect={(spec) => useStore.setState({ selectedSpec: spec })}
+                onOpenSettings={() => setSettingsOpen(true)}
+                settingsDisabled={settingsDisabled}
             />
             <main className="flex-1 p-4 overflow-auto space-y-4">
                 <div className="flex items-center gap-3">
