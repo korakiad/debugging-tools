@@ -39,11 +39,45 @@ export interface MochaLogLine {
     text: string;
 }
 
+// Selected describe/it inside the active spec. `null` means "run the whole
+// spec file" (no --grep). The kind drives how the UI builds the Mocha
+// --grep regex (see lib/mochaGrep).
+export interface SelectedNode {
+    kind: "describe" | "it";
+    fullTitle: string;
+}
+
+// Mirror of server/src/parseSuite.ts shapes — duplicated so the web bundle
+// has no compile-time dep on the server's emitted types.
+export interface SuiteNode {
+    kind: "describe" | "it";
+    title: string;
+    fullTitle: string;
+    line: number;
+    endLine: number;
+    children: SuiteNode[];
+    pending?: boolean;
+    only?: boolean;
+}
+export interface SuiteTree {
+    file: string;
+    relPath: string;
+    children: SuiteNode[];
+    source?: string;
+    error?: string;
+}
+
 interface Store {
     suites: Suite[];
     config: Record<string, unknown>;
     state: Snapshot;
     selectedSpec: string | null;
+    selectedNode: SelectedNode | null;
+    // Cached parsed trees keyed by spec relPath. Populated by TestTree after
+    // a successful /api/suite/tree fetch so other components (e.g.
+    // SelectionPanel, CodePreview) can read the source/line ranges without
+    // refetching.
+    suiteTrees: Record<string, SuiteTree>;
     chatMessages: Array<{ role: "assistant" | "user"; content: string }>;
     pendingDiff: Diff | null;
     pendingPick: Pick | null;
@@ -59,6 +93,8 @@ export const useStore = create<Store>((set) => ({
     config: {},
     state: { state: "idle" },
     selectedSpec: null,
+    selectedNode: null,
+    suiteTrees: {},
     chatMessages: [],
     pendingDiff: null,
     pendingPick: null,
@@ -81,7 +117,19 @@ export const useStore = create<Store>((set) => ({
             if (e.type === "suites_updated") {
                 const next: Suite[] = e.suites;
                 const stillThere = !!s.selectedSpec && next.some((suite) => suite.relPath === s.selectedSpec);
-                return { suites: next, selectedSpec: stillThere ? s.selectedSpec : null };
+                // Drop cached trees for specs that no longer exist — they'd
+                // render under file rows that have been removed from discovery.
+                const validSpecs = new Set(next.map((suite) => suite.relPath));
+                const trimmedTrees: Record<string, SuiteTree> = {};
+                for (const [k, v] of Object.entries(s.suiteTrees)) {
+                    if (validSpecs.has(k)) trimmedTrees[k] = v;
+                }
+                return {
+                    suites: next,
+                    selectedSpec: stillThere ? s.selectedSpec : null,
+                    selectedNode: stillThere ? s.selectedNode : null,
+                    suiteTrees: trimmedTrees,
+                };
             }
             if (e.type === "status") {
                 if (e.state === "running" || e.state === "pre-running") {

@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { buildMochaCommand, BUNDLED_HOOK_PATH, killTree, spawnShellCommand } from "../src/runner.js";
+import {
+    buildMochaCommand,
+    BUNDLED_HOOK_PATH,
+    killTree,
+    shellQuote,
+    spawnShellCommand,
+} from "../src/runner.js";
 
 describe("buildMochaCommand", () => {
     it("defaults to npx mocha and injects DEBUG_GUI_PORT + DEBUG_GUI_PID", () => {
@@ -45,6 +51,29 @@ describe("buildMochaCommand", () => {
         ]);
     });
 
+    it("appends --grep <pattern> when grep is set, after --require", () => {
+        const cmd = buildMochaCommand({
+            spec: "test/login.spec.js",
+            guiPort: 5555,
+            guiPid: 1,
+            grep: "^SauceDemo Login should enter username$",
+        });
+        expect(cmd.args).toEqual([
+            "mocha", "test/login.spec.js",
+            "--require", BUNDLED_HOOK_PATH,
+            "--grep", "^SauceDemo Login should enter username$",
+        ]);
+    });
+
+    it("omits --grep entirely when grep is not provided", () => {
+        const cmd = buildMochaCommand({
+            spec: "t.spec.js",
+            guiPort: 5555,
+            guiPid: 1,
+        });
+        expect(cmd.args.includes("--grep")).toBe(false);
+    });
+
     it("does NOT forward package.json mocha.require — Mocha auto-reads it", () => {
         // Regression: forwarding used to double-load each require.
         const cmd = buildMochaCommand({
@@ -68,6 +97,56 @@ describe("killTree", () => {
         // tree-kill will surface an error to its callback, but we swallow
         // it so Stop + next-run-start can both call killTree safely.
         await expect(killTree(2 ** 31 - 1)).resolves.toBeUndefined();
+    });
+});
+
+describe("shellQuote", () => {
+    it("leaves safe args (alnum/path chars) unquoted on every platform", () => {
+        for (const p of ["win32", "darwin", "linux"] as const) {
+            expect(shellQuote("mocha", p)).toBe("mocha");
+            expect(shellQuote("test/login.spec.js", p)).toBe("test/login.spec.js");
+            expect(shellQuote("--grep", p)).toBe("--grep");
+            expect(shellQuote("C:\\path\\to\\hook.cjs", p)).toBe("C:\\path\\to\\hook.cjs");
+            expect(shellQuote("/Users/foo/proj/hook.cjs", p)).toBe("/Users/foo/proj/hook.cjs");
+        }
+    });
+
+    describe("Windows (cmd.exe rules)", () => {
+        it("wraps args containing spaces in double quotes", () => {
+            expect(shellQuote("^Login Form ", "win32")).toBe(`"^Login Form "`);
+        });
+
+        it("doubles internal double-quotes (cmd.exe convention)", () => {
+            expect(shellQuote(`a"b`, "win32")).toBe(`"a""b"`);
+        });
+
+        it("quotes args with shell metacharacters even without spaces", () => {
+            // `^` outside quotes is cmd.exe's escape character — without
+            // quoting, `^Login` becomes `Login`.
+            expect(shellQuote("^Login", "win32")).toBe(`"^Login"`);
+        });
+    });
+
+    describe("POSIX (sh rules — covers macOS/linux)", () => {
+        it("wraps args containing spaces in single quotes on darwin", () => {
+            expect(shellQuote("^Login Form ", "darwin")).toBe("'^Login Form '");
+        });
+
+        it("wraps args containing spaces in single quotes on linux", () => {
+            expect(shellQuote("^Login Form ", "linux")).toBe("'^Login Form '");
+        });
+
+        it("preserves regex anchors ^ and $ literally inside single quotes", () => {
+            // Inside single quotes sh does NOT expand or interpret anything,
+            // so `$` stays a `$` and Mocha receives the regex untouched.
+            expect(shellQuote("^Login Form should click$", "darwin")).toBe(
+                "'^Login Form should click$'"
+            );
+        });
+
+        it("escapes internal single quotes via the standard '\\'' recipe", () => {
+            expect(shellQuote("a'b", "darwin")).toBe("'a'\\''b'");
+        });
     });
 });
 

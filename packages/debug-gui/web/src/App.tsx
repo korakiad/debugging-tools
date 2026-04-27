@@ -1,7 +1,11 @@
 import { useState } from "react";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { useStore } from "./state/store";
-import { TestTree } from "./components/TestTree";
+import { TestTree, type TestSelection } from "./components/TestTree";
+import { SelectionPanel } from "./components/SelectionPanel";
+import { CodePreview, languageFromPath, sliceSource } from "./components/CodePreview";
+import { mochaGrepFor } from "./lib/mochaGrep";
+import { findNode } from "./lib/findNode";
 import { FailureCard } from "./components/FailureCard";
 import { DiffView } from "./components/DiffView";
 import { PickerOverlay } from "./components/PickerOverlay";
@@ -17,6 +21,16 @@ export default function App() {
     const suites = useStore((s) => s.suites);
     const state = useStore((s) => s.state);
     const selectedSpec = useStore((s) => s.selectedSpec);
+    const selectedNode = useStore((s) => s.selectedNode);
+    const suiteTrees = useStore((s) => s.suiteTrees);
+    const selection: TestSelection | null = selectedSpec ? { spec: selectedSpec, node: selectedNode } : null;
+
+    // Code preview for the active selection. We slice the cached file source
+    // using the node's [line, endLine] so the QA operator sees exactly the
+    // describe/it body that --grep will run.
+    const tree = selectedSpec ? suiteTrees[selectedSpec] : undefined;
+    const matchedNode = findNode(tree, selectedNode);
+    const previewCode = matchedNode ? sliceSource(tree?.source, matchedNode.line, matchedNode.endLine) : null;
     const diff = useStore((s) => s.pendingDiff);
     const pick = useStore((s) => s.pendingPick);
     const config = useStore((s) => s.config) as { preRun?: string } & DebugGuiConfigShape;
@@ -59,8 +73,10 @@ export default function App() {
         <div className="flex h-screen">
             <TestTree
                 suites={suites}
-                selectedSpec={selectedSpec}
-                onSelect={(spec) => useStore.setState({ selectedSpec: spec })}
+                selection={selection}
+                onSelect={(sel) =>
+                    useStore.setState({ selectedSpec: sel.spec, selectedNode: sel.node })
+                }
                 onOpenSettings={() => setSettingsOpen(true)}
                 settingsDisabled={settingsDisabled}
             />
@@ -70,7 +86,9 @@ export default function App() {
                         cta
                         disabled={!canStart || undefined}
                         onClick={() => {
-                            if (canStart) send({ type: "run", spec: selectedSpec!, skipPreRun });
+                            if (!canStart) return;
+                            const grep = mochaGrepFor(selectedNode) ?? undefined;
+                            send({ type: "run", spec: selectedSpec!, skipPreRun, grep });
                         }}
                     >
                         Start
@@ -85,11 +103,6 @@ export default function App() {
                     </EfButton>
                     {(state.state === "running" || state.state === "pre-running") && <Spinner />}
                     <span>Status: {state.state}</span>
-                    {selectedSpec && (
-                        <span className="text-xs opacity-70 truncate max-w-xs" title={selectedSpec}>
-                            {selectedSpec}
-                        </span>
-                    )}
                     {showPreRun && (
                         <PreRunRow
                             saved={savedPreRun}
@@ -124,6 +137,19 @@ export default function App() {
                     }}
                     onClose={() => setSettingsOpen(false)}
                 />
+                <SelectionPanel
+                    spec={selectedSpec}
+                    node={selectedNode}
+                    onClear={() => useStore.setState({ selectedNode: null })}
+                />
+                {selectedSpec && selectedNode && previewCode && (
+                    <CodePreview
+                        code={previewCode}
+                        startLine={matchedNode!.line}
+                        language={languageFromPath(selectedSpec)}
+                        title={`${selectedSpec}:${matchedNode!.line}`}
+                    />
+                )}
                 {state.currentFailure && <FailureCard failure={state.currentFailure} />}
                 <MochaLogPanel />
                 {diff && (

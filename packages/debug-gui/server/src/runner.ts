@@ -44,6 +44,10 @@ export interface BuildOptions {
     // Gui server pid — hook polls process.kill(pid, 0) for parent-death detection.
     guiPid: number;
     customCommand?: CustomCommand;
+    // Mocha --grep value (regex source). When set, only tests whose full
+    // title matches the regex run. Built from the user's tree selection;
+    // see parseSuite.mochaGrepFor.
+    grep?: string;
 }
 
 export interface MochaCommand {
@@ -63,6 +67,8 @@ export function buildMochaCommand(opts: BuildOptions): MochaCommand {
     // twice. We only piggy-back the pause-on-failure hook.
     args.push("--require", BUNDLED_HOOK_PATH);
 
+    if (opts.grep) args.push("--grep", opts.grep);
+
     return {
         command,
         args,
@@ -72,6 +78,32 @@ export function buildMochaCommand(opts: BuildOptions): MochaCommand {
             DEBUG_GUI_PID: String(opts.guiPid),
         },
     };
+}
+
+// Quote a single argv entry for `spawn(..., { shell: true })`. Without this,
+// Node concatenates args with spaces and hands them to cmd.exe / sh, which
+// re-tokenises on whitespace and shell metacharacters — so a value like
+// `^Login Form ` gets split into `^Login`, `Form`, `` and Mocha treats
+// `Form` as a positional spec pattern (manifests as
+// "Cannot find any files matching pattern 'Form'").
+//
+// Strategy:
+//   * Already-safe args (alnum, `_./:=@\\-+`) pass through unchanged so
+//     existing tests on `buildMochaCommand` keep working.
+//   * Otherwise wrap in double quotes on Windows (cmd.exe treats most
+//     metacharacters literally inside `"..."`; internal `"` doubles to `""`).
+//   * On POSIX (linux/darwin), wrap in single quotes (sh treats every byte
+//     literally inside `'...'`; internal `'` becomes `'\''`, the standard
+//     POSIX escape recipe).
+//
+// `platform` is parameterised so tests can exercise both branches from any
+// host. Defaults to the current process's platform.
+export function shellQuote(arg: string, platform: NodeJS.Platform = process.platform): string {
+    if (/^[A-Za-z0-9_./:=@\\\-+]+$/.test(arg)) return arg;
+    if (platform === "win32") {
+        return `"${arg.replace(/"/g, '""')}"`;
+    }
+    return `'${arg.replace(/'/g, `'\\''`)}'`;
 }
 
 // Cross-platform "kill this process AND every descendant it spawned."
@@ -107,7 +139,12 @@ export class MochaRunner extends EventEmitter {
         // something), reap its tree before spawning a new one. Otherwise
         // the new ChromeDriver may adopt the orphaned Chrome's profile.
         await killTree(this.proc?.pid);
-        this.proc = spawn(cmd.command, cmd.args, { env: cmd.env, shell: true });
+        // shell:true joins args with spaces without quoting — see shellQuote
+        // for the failure mode this prevents (--grep value with spaces was
+        // re-tokenised into a Mocha "pattern" arg). Wrapped in an arrow so
+        // map's `index` argument doesn't clobber the platform parameter.
+        const quoted = cmd.args.map((a) => shellQuote(a));
+        this.proc = spawn(cmd.command, quoted, { env: cmd.env, shell: true });
         this.proc.stdout?.on("data", (d) => this.emit("stdout", d.toString()));
         this.proc.stderr?.on("data", (d) => this.emit("stderr", d.toString()));
         this.proc.on("exit", (code) => this.emit("exit", code));

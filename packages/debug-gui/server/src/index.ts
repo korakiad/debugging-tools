@@ -174,6 +174,7 @@ export async function main(
                 guiPort: port,
                 guiPid: process.pid,
                 customCommand,
+                grep: cmd.grep,
             });
             await hooker.reset();
             await runner.start(mochaCmd);

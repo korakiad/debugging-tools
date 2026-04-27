@@ -18,7 +18,15 @@ export type ServerEvent =
     | { type: "error"; message: string };
 
 export type ClientCommand =
-    | { type: "run"; spec: string; skipPreRun?: boolean }
+    | {
+        type: "run";
+        spec: string;
+        skipPreRun?: boolean;
+        // Mocha --grep regex source. Omit to run the whole file. The UI
+        // builds this from the user's selection in TestTree (a single it
+        // node → "^<full title>$", a describe → "^<full title> ").
+        grep?: string;
+    }
     | { type: "cancel" }
     | { type: "continue" }
     | { type: "chat_send"; prompt: string }

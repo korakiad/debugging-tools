@@ -19,6 +19,59 @@ describe("API /api/init", () => {
     });
 });
 
+describe("API /api/suite/tree", () => {
+    it("returns 400 when spec query param is missing", async () => {
+        const app = createApp({
+            cwd: process.cwd(),
+            loadInit: () => ({
+                suites: [{ relPath: "a.spec.js", absPath: "/x/a.spec.js" }],
+                config: {} as any,
+                state: { state: "idle" },
+            }),
+        });
+        await request(app).get("/api/suite/tree").expect(400);
+    });
+
+    it("returns 404 when spec is not in the discovered suites list", async () => {
+        const app = createApp({
+            cwd: process.cwd(),
+            loadInit: () => ({
+                suites: [{ relPath: "a.spec.js", absPath: "/x/a.spec.js" }],
+                config: {} as any,
+                state: { state: "idle" },
+            }),
+        });
+        await request(app).get("/api/suite/tree?spec=other.spec.js").expect(404);
+    });
+
+    it("returns the parsed tree for a discovered suite", async () => {
+        const app = createApp({
+            cwd: "/proj",
+            loadInit: () => ({
+                suites: [{ relPath: "a.spec.js", absPath: "/proj/a.spec.js" }],
+                config: {} as any,
+                state: { state: "idle" },
+            }),
+            parseTree: (absPath) => ({
+                file: absPath,
+                relPath: "a.spec.js",
+                source: "describe('Login', () => { it('works', () => {}); });\n",
+                children: [
+                    {
+                        kind: "describe", title: "Login", fullTitle: "Login",
+                        line: 1, endLine: 1, children: [
+                            { kind: "it", title: "works", fullTitle: "Login works", line: 1, endLine: 1, children: [] },
+                        ],
+                    },
+                ],
+            }),
+        });
+        const res = await request(app).get("/api/suite/tree?spec=a.spec.js").expect(200);
+        expect(res.body.children[0].title).toBe("Login");
+        expect(res.body.children[0].children[0].fullTitle).toBe("Login works");
+    });
+});
+
 describe("Hook IPC routes", () => {
     function makeApp() {
         const hooker = new HookerClient();
