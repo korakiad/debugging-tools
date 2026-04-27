@@ -115,7 +115,14 @@ export function TreePicker({ open, extensions, fetchTree, onPick, onCancel }: Tr
                 </p>
 
                 {loading && <p className="opacity-70">Loading project tree…</p>}
-                {error && <p className="text-red-400">Failed to load tree: {error}</p>}
+                {error && (
+                    <div className="mb-3">
+                        <p className="text-red-400 text-sm">Failed to load tree: {error}</p>
+                        <p className="opacity-60 text-xs mt-1">
+                            Close this and try again, or add globs by hand.
+                        </p>
+                    </div>
+                )}
 
                 {!loading && !error && (
                     <div className="max-h-[50vh] overflow-auto border border-gray-700 rounded p-2 mb-3">
