@@ -20,5 +20,12 @@
       "./test/walkthrough-e2e-wdio/wdio-setup.js"
     ],
     "timeout": 0
+  },
+  "debug-gui": {
+    "discovery": {
+      "globs": [
+        "test/walkthrough-e2e/failing-selector.spec.js"
+      ]
+    }
   }
 }
