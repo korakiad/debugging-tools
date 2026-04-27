@@ -9,6 +9,7 @@ import { ChatDrawer } from "./components/ChatDrawer";
 import { MochaLogPanel } from "./components/MochaLogPanel";
 import { Spinner } from "./components/Spinner";
 import { PreRunRow } from "./components/PreRunRow";
+import { SettingsDialog, type DebugGuiConfigShape } from "./components/SettingsDialog";
 import { EfButton } from "./ui";
 
 export default function App() {
@@ -18,13 +19,15 @@ export default function App() {
     const selectedSpec = useStore((s) => s.selectedSpec);
     const diff = useStore((s) => s.pendingDiff);
     const pick = useStore((s) => s.pendingPick);
-    const config = useStore((s) => s.config) as { preRun?: string };
+    const config = useStore((s) => s.config) as { preRun?: string } & DebugGuiConfigShape;
     const savedPreRun = config.preRun ?? "";
     // Skip defaults to unchecked on every reload. Persisting it would let a
     // user accidentally skip builds session after session; the design calls
     // out "always run build" as the safe default.
     const [skipPreRun, setSkipPreRun] = useState(false);
     const [preRunDirty, setPreRunDirty] = useState(false);
+    const [settingsOpen, setSettingsOpen] = useState(false);
+    const settingsDisabled = state.state === "running" || state.state === "pre-running" || state.state === "paused";
 
     // Show the row whenever preRun is configured. First-run setup (no value)
     // is not exposed here; dev commits initial value OR user triggers the
@@ -100,7 +103,25 @@ export default function App() {
                             Continue
                         </EfButton>
                     )}
+                    <button
+                        type="button"
+                        aria-label="settings"
+                        className="ml-auto px-2 py-1 rounded border border-gray-600 text-sm disabled:opacity-40"
+                        disabled={settingsDisabled}
+                        onClick={() => setSettingsOpen(true)}
+                    >
+                        ⚙
+                    </button>
                 </div>
+                <SettingsDialog
+                    open={settingsOpen}
+                    config={config}
+                    onSave={(patch) => {
+                        send({ type: "settings_update", ...patch });
+                        setSettingsOpen(false);
+                    }}
+                    onClose={() => setSettingsOpen(false)}
+                />
                 {state.currentFailure && <FailureCard failure={state.currentFailure} />}
                 <MochaLogPanel />
                 {diff && (
