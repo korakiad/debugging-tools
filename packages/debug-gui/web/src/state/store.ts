@@ -79,7 +79,9 @@ export const useStore = create<Store>((set) => ({
                 return { config: e.config };
             }
             if (e.type === "suites_updated") {
-                return { suites: e.suites };
+                const next: Suite[] = e.suites;
+                const stillThere = !!s.selectedSpec && next.some((suite) => suite.relPath === s.selectedSpec);
+                return { suites: next, selectedSpec: stillThere ? s.selectedSpec : null };
             }
             if (e.type === "status") {
                 if (e.state === "running" || e.state === "pre-running") {

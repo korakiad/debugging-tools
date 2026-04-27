@@ -66,4 +66,31 @@ describe("store", () => {
         });
         expect(useStore.getState().state.currentFailure?.test).toBe("t");
     });
+
+    it("suites_updated clears selectedSpec when it is no longer in the new suites", () => {
+        useStore.setState({
+            suites: [{ relPath: "test/login.spec.js", absPath: "/x/test/login.spec.js" }],
+            selectedSpec: "test/login.spec.js",
+        });
+        useStore.getState().applyEvent({
+            type: "suites_updated",
+            suites: [],
+        });
+        expect(useStore.getState().selectedSpec).toBeNull();
+    });
+
+    it("suites_updated preserves selectedSpec when it is still present in the new suites", () => {
+        useStore.setState({
+            suites: [{ relPath: "test/login.spec.js", absPath: "/x/test/login.spec.js" }],
+            selectedSpec: "test/login.spec.js",
+        });
+        useStore.getState().applyEvent({
+            type: "suites_updated",
+            suites: [
+                { relPath: "test/login.spec.js", absPath: "/x/test/login.spec.js" },
+                { relPath: "test/checkout.spec.js", absPath: "/x/test/checkout.spec.js" },
+            ],
+        });
+        expect(useStore.getState().selectedSpec).toBe("test/login.spec.js");
+    });
 });
