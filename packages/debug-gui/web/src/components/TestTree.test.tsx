@@ -31,4 +31,46 @@ describe("TestTree", () => {
         expect(screen.getByText("test/a.spec.js")).toHaveAttribute("aria-pressed", "false");
         expect(screen.getByText("test/b.spec.js")).toHaveAttribute("aria-pressed", "true");
     });
+
+    it("renders an empty-state nudge when there are no suites", () => {
+        render(
+            <TestTree
+                suites={[]}
+                selectedSpec={null}
+                onSelect={() => {}}
+                onOpenSettings={() => {}}
+            />
+        );
+        expect(screen.getByText(/no test files yet/i)).toBeInTheDocument();
+        expect(
+            screen.getByRole("button", { name: /open settings/i })
+        ).toBeInTheDocument();
+    });
+
+    it("clicking the empty-state Open Settings button calls onOpenSettings", () => {
+        const onOpenSettings = vi.fn();
+        render(
+            <TestTree
+                suites={[]}
+                selectedSpec={null}
+                onSelect={() => {}}
+                onOpenSettings={onOpenSettings}
+            />
+        );
+        fireEvent.click(screen.getByRole("button", { name: /open settings/i }));
+        expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    });
+
+    it("disables the empty-state Open Settings button when settingsDisabled", () => {
+        render(
+            <TestTree
+                suites={[]}
+                selectedSpec={null}
+                onSelect={() => {}}
+                onOpenSettings={() => {}}
+                settingsDisabled
+            />
+        );
+        expect(screen.getByRole("button", { name: /open settings/i })).toBeDisabled();
+    });
 });
