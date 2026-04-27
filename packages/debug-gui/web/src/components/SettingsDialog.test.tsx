@@ -149,6 +149,34 @@ describe("SettingsDialog", () => {
         fireEvent.change(screen.getByLabelText("extensions"), { target: { value: "js, ts" } });
         expect(screen.getByText(/Will be applied as/).textContent).toContain(".{js,ts}");
     });
+
+    it("shows a 'no patterns yet' hint when a glob list is empty", () => {
+        render(
+            <SettingsDialog
+                open
+                config={{ discovery: { globs: [], exclude: [] } }}
+                onSave={() => {}}
+                onClose={() => {}}
+            />
+        );
+        // Two empty lists → two hints (one above globs, one above excludes).
+        expect(screen.getAllByText(/no patterns yet/i).length).toBe(2);
+    });
+
+    it("hides the 'no patterns yet' hint after the user adds a row", () => {
+        render(
+            <SettingsDialog
+                open
+                config={{ discovery: { globs: [], exclude: ["x"] } }}
+                onSave={() => {}}
+                onClose={() => {}}
+            />
+        );
+        // Only the empty glob list shows the hint.
+        expect(screen.getAllByText(/no patterns yet/i).length).toBe(1);
+        fireEvent.click(screen.getByRole("button", { name: /add glob/i }));
+        expect(screen.queryByText(/no patterns yet/i)).not.toBeInTheDocument();
+    });
 });
 
 describe("parseExtensionsInput", () => {
