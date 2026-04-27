@@ -14,6 +14,7 @@ export type ServerEvent =
     | { type: "diff"; reqId: string; file: string; oldCode: string; newCode: string }
     | { type: "pick"; reqId: string; imageUrl: string; hint: string }
     | { type: "config_updated"; config: unknown }
+    | { type: "suites_updated"; suites: unknown[] }
     | { type: "error"; message: string };
 
 export type ClientCommand =
@@ -24,4 +25,9 @@ export type ClientCommand =
     | { type: "agent_abort" }
     | { type: "diff_decision"; reqId: string; action: "approved" | "rejected"; reason?: string }
     | { type: "pick_result"; reqId: string; selector: string; attrs: Record<string, unknown> }
-    | { type: "settings_update"; preRun: string };
+    | {
+        type: "settings_update";
+        preRun?: string;
+        idleTimeoutMs?: number;
+        discovery?: { globs?: string[]; exclude?: string[]; extensions?: string[] };
+    };

@@ -29,9 +29,9 @@ export async function main(
     const customCommand = commandTokens.length > 0
         ? { cmd: commandTokens[0], args: commandTokens.slice(1) }
         : undefined;
-    const suites = discoverSuites(cwd, {
+    let suites = discoverSuites(cwd, {
         globs: config.discovery.globs,
-        exclude: config.mocha.exclude,
+        exclude: config.discovery.exclude,
     });
 
     const session = new SessionManager();
@@ -298,15 +298,60 @@ export async function main(
             session.reset();
         }
         if (cmd.type === "settings_update") {
-            if (typeof cmd.preRun !== "string") {
-                hub.broadcast({ type: "error", message: "Save settings: preRun must be a string" });
-                return;
+            const patch: Parameters<typeof saveConfig>[1] = {};
+            if (cmd.preRun !== undefined) {
+                if (typeof cmd.preRun !== "string") {
+                    hub.broadcast({ type: "error", message: "Save settings: preRun must be a string" });
+                    return;
+                }
+                patch.preRun = cmd.preRun;
+            }
+            if (cmd.idleTimeoutMs !== undefined) {
+                if (typeof cmd.idleTimeoutMs !== "number" || !Number.isFinite(cmd.idleTimeoutMs) || cmd.idleTimeoutMs <= 0) {
+                    hub.broadcast({ type: "error", message: "Save settings: idleTimeoutMs must be a positive number" });
+                    return;
+                }
+                patch.idleTimeoutMs = cmd.idleTimeoutMs;
+            }
+            if (cmd.discovery !== undefined) {
+                const d: { globs?: string[]; exclude?: string[]; extensions?: string[] } = {};
+                if (cmd.discovery.globs !== undefined) {
+                    if (!Array.isArray(cmd.discovery.globs) || !cmd.discovery.globs.every((g) => typeof g === "string")) {
+                        hub.broadcast({ type: "error", message: "Save settings: discovery.globs must be string[]" });
+                        return;
+                    }
+                    d.globs = cmd.discovery.globs;
+                }
+                if (cmd.discovery.exclude !== undefined) {
+                    if (!Array.isArray(cmd.discovery.exclude) || !cmd.discovery.exclude.every((g) => typeof g === "string")) {
+                        hub.broadcast({ type: "error", message: "Save settings: discovery.exclude must be string[]" });
+                        return;
+                    }
+                    d.exclude = cmd.discovery.exclude;
+                }
+                if (cmd.discovery.extensions !== undefined) {
+                    if (!Array.isArray(cmd.discovery.extensions) || !cmd.discovery.extensions.every((g) => typeof g === "string")) {
+                        hub.broadcast({ type: "error", message: "Save settings: discovery.extensions must be string[]" });
+                        return;
+                    }
+                    d.extensions = cmd.discovery.extensions;
+                }
+                patch.discovery = d;
             }
             try {
-                const nextCfg = saveConfig(cwd, { preRun: cmd.preRun });
+                const nextCfg = saveConfig(cwd, patch);
                 // Mutate the captured config so downstream run-handler sees the new value.
                 Object.assign(config, nextCfg);
                 hub.broadcast({ type: "config_updated", config: nextCfg });
+                // If discovery changed, re-scan and broadcast fresh suites so
+                // the TestTree reflects the new include/exclude without a reload.
+                if (patch.discovery) {
+                    suites = discoverSuites(cwd, {
+                        globs: nextCfg.discovery.globs,
+                        exclude: nextCfg.discovery.exclude,
+                    });
+                    hub.broadcast({ type: "suites_updated", suites });
+                }
             } catch (e: any) {
                 hub.broadcast({ type: "error", message: `Save settings: ${e?.message ?? e}` });
             }

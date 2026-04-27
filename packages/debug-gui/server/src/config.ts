@@ -9,7 +9,7 @@ export interface DebugGuiConfig {
         spec?: string[];
     };
     cdp: { port: number };
-    discovery: { globs: string[] };
+    discovery: { globs: string[]; exclude: string[]; extensions?: string[] };
     agent: { idleTimeoutMs: number };
     preRun?: string;
 }
@@ -19,20 +19,43 @@ const DEFAULT_GLOBS = [
     "spec/**/*.test.{js,ts}",
 ];
 
+const DEFAULT_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
+
 export function loadConfig(cwd: string): DebugGuiConfig {
     const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8"));
     const dg = pkg["debug-gui"] ?? {};
+    // One-time migration: if the user hasn't set discovery.exclude yet but
+    // has a legacy mocha.exclude, treat the mocha value as the source.
+    // Persisted on the next GUI save — we never silently rewrite on load.
+    const exclude: string[] = Array.isArray(dg.discovery?.exclude)
+        ? dg.discovery.exclude
+        : (Array.isArray(pkg.mocha?.exclude) ? pkg.mocha.exclude : []);
+    const extensions: string[] | undefined =
+        Array.isArray(dg.discovery?.extensions) && dg.discovery.extensions.length > 0
+            ? dg.discovery.extensions
+            : undefined;
     return {
         mocha: pkg.mocha ?? {},
         cdp: { port: dg.cdp?.port ?? 9222 },
-        discovery: { globs: dg.discovery?.globs ?? DEFAULT_GLOBS },
-        agent: { idleTimeoutMs: dg.agent?.idleTimeoutMs ?? 10 * 60 * 1000 },
+        discovery: {
+            globs: Array.isArray(dg.discovery?.globs) ? dg.discovery.globs : DEFAULT_GLOBS,
+            exclude,
+            extensions,
+        },
+        agent: { idleTimeoutMs: dg.agent?.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS },
         preRun: typeof dg.preRun === "string" && dg.preRun.length > 0 ? dg.preRun : undefined,
     };
 }
 
 export interface ConfigPatch {
     preRun?: string;
+    idleTimeoutMs?: number;
+    discovery?: {
+        globs?: string[];
+        exclude?: string[];
+        // Empty array removes the key ("no override, use inference again").
+        extensions?: string[];
+    };
 }
 
 // Mutates consumer's package.json["debug-gui"] by applying `patch`.
@@ -47,6 +70,21 @@ export function saveConfig(cwd: string, patch: ConfigPatch): DebugGuiConfig {
     if (patch.preRun !== undefined) {
         if (patch.preRun === "") delete block.preRun;
         else block.preRun = patch.preRun;
+    }
+
+    if (patch.idleTimeoutMs !== undefined) {
+        block.agent = { ...(block.agent ?? {}), idleTimeoutMs: patch.idleTimeoutMs };
+    }
+
+    if (patch.discovery) {
+        const nextDiscovery = { ...(block.discovery ?? {}) };
+        if (patch.discovery.globs !== undefined) nextDiscovery.globs = patch.discovery.globs;
+        if (patch.discovery.exclude !== undefined) nextDiscovery.exclude = patch.discovery.exclude;
+        if (patch.discovery.extensions !== undefined) {
+            if (patch.discovery.extensions.length === 0) delete nextDiscovery.extensions;
+            else nextDiscovery.extensions = patch.discovery.extensions;
+        }
+        block.discovery = nextDiscovery;
     }
 
     pkg["debug-gui"] = block;

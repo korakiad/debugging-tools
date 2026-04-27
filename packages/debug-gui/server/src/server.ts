@@ -5,6 +5,7 @@ import { DebugGuiConfig } from "./config.js";
 import { SessionSnapshot } from "./session.js";
 import type { ServerEvent, ClientCommand } from "./messages.js";
 import type { HookerClient, HookFailure, HookStatus } from "./hooker.js";
+import { listProjectTree } from "./fsTree.js";
 
 export interface InitPayload {
     suites: Suite[];
@@ -23,6 +24,20 @@ export function createApp(deps: AppDeps): Express {
     app.use(express.json());
     app.get("/api/init", (_req, res) => {
         res.json(deps.loadInit());
+    });
+
+    // File tree for the settings picker. Filter param narrows to test-like
+    // files by default — keeps the payload small for big monorepos.
+    app.get("/api/fs/tree", (req, res) => {
+        const filterRaw = typeof req.query.filter === "string" ? req.query.filter : "\\.(spec|test)\\.(js|ts|tsx|jsx|mjs|cjs)$";
+        let fileFilter: RegExp | undefined;
+        try {
+            fileFilter = new RegExp(filterRaw);
+        } catch {
+            return res.status(400).json({ error: "invalid filter regex" });
+        }
+        const tree = listProjectTree(deps.cwd, { fileFilter });
+        res.json({ root: tree });
     });
 
     // ── Hook IPC routes (called by runtime/walkthrough-hooks.cjs) ──
