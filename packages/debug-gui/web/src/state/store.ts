@@ -78,6 +78,9 @@ export const useStore = create<Store>((set) => ({
             if (e.type === "config_updated") {
                 return { config: e.config };
             }
+            if (e.type === "suites_updated") {
+                return { suites: e.suites };
+            }
             if (e.type === "status") {
                 if (e.state === "running" || e.state === "pre-running") {
                     return {

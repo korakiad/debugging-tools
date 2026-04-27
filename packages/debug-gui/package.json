@@ -32,5 +32,10 @@
     "dev": "npm run dev -w @debug-gui/server & npm run dev -w @debug-gui/web",
     "test": "npm run test -w @debug-gui/server && npm run test -w @debug-gui/web",
     "setup-browser": "npm run setup-browser -w @debug-gui/server"
+  },
+  "debug-gui": {
+    "discovery": {
+      "globs": []
+    }
   }
 }
