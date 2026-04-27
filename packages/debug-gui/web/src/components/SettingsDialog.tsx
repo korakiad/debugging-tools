@@ -243,6 +243,9 @@ function GlobList({ values, onChange, inputAriaLabel, addLabel, placeholder }: G
                     </button>
                 </div>
             ))}
+            {values.length === 0 && (
+                <p className="opacity-60 text-xs">No patterns yet.</p>
+            )}
             <button
                 type="button"
                 onClick={() => onChange([...values, ""])}
