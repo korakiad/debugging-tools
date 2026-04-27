@@ -119,7 +119,16 @@ export function TreePicker({ open, extensions, fetchTree, onPick, onCancel }: Tr
 
                 {!loading && !error && (
                     <div className="max-h-[50vh] overflow-auto border border-gray-700 rounded p-2 mb-3">
-                        <EfTree ref={treeRef as any} multiple />
+                        {data.length === 0 ? (
+                            <div className="px-2 py-6 text-center text-sm">
+                                <p className="opacity-70 mb-1">No files matched.</p>
+                                <p className="opacity-60 text-xs">
+                                    Try widening the extensions, or pick a different folder.
+                                </p>
+                            </div>
+                        ) : (
+                            <EfTree ref={treeRef as any} multiple />
+                        )}
                     </div>
                 )}
 
