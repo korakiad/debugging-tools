@@ -17,3 +17,6 @@ import "@refinitiv-ui/elements/text-field/themes/halo/dark";
 
 import "@refinitiv-ui/elements/dialog";
 import "@refinitiv-ui/elements/dialog/themes/halo/dark";
+
+import "@refinitiv-ui/elements/tree";
+import "@refinitiv-ui/elements/tree/themes/halo/dark";
