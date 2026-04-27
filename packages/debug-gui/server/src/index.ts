@@ -91,7 +91,7 @@ export async function main(
         }
     });
 
-    const copilot = new CopilotClient();
+    const copilot = new CopilotClient({ sessionIdleTimeoutSeconds: 1800 });
     await copilot.start();
 
     // Tracked across messages so agent_abort can reach the live session and
@@ -133,6 +133,10 @@ export async function main(
         if (cmd.type === "run") {
             const spec = suites.find((s) => s.relPath === cmd.spec)?.absPath;
             if (!spec) return;
+            if (currentAgentSession) {
+                aborting = true;
+                try { await currentAgentSession.abort(); } catch { /* ignore */ }
+            }
             // End-to-end coverage: test/smoke.sh — pre-run happy-path + failure paths (Task 10)
             // ── Pre-run step ─────────────────────────────────────
             if (config.preRun && !cmd.skipPreRun) {
