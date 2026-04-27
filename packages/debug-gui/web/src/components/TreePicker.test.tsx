@@ -115,4 +115,23 @@ describe("TreePicker render", () => {
         });
         expect(screen.getByText(/widening the extensions/i)).toBeInTheDocument();
     });
+
+    it("shows a recovery hint when the fetch fails", async () => {
+        const fetchTree = async () => {
+            throw new Error("connection refused");
+        };
+        render(
+            <TreePicker
+                open
+                fetchTree={fetchTree}
+                onPick={() => {}}
+                onCancel={() => {}}
+            />
+        );
+        await waitFor(() => {
+            expect(screen.getByText(/failed to load tree/i)).toBeInTheDocument();
+        });
+        expect(screen.getByText(/connection refused/i)).toBeInTheDocument();
+        expect(screen.getByText(/add globs by hand/i)).toBeInTheDocument();
+    });
 });
