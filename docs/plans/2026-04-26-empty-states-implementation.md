@@ -37,7 +37,7 @@ it("renders an empty-state nudge when there are no suites", () => {
             onOpenSettings={() => {}}
         />
     );
-    expect(screen.getByText(/no test files discovered/i)).toBeInTheDocument();
+    expect(screen.getByText(/no test files yet/i)).toBeInTheDocument();
     expect(
         screen.getByRole("button", { name: /open settings/i })
     ).toBeInTheDocument();
@@ -118,9 +118,9 @@ export function TestTree({
             <h2 className="text-sm font-bold mb-2">Test Suites</h2>
             {suites.length === 0 ? (
                 <div className="px-2 py-6 text-center text-sm">
-                    <p className="opacity-70 mb-1">No test files discovered.</p>
+                    <p className="opacity-70 mb-1">Looks like there are no test files yet.</p>
                     <p className="opacity-60 text-xs mb-3">
-                        Check your discovery globs in Settings.
+                        Configure where to find them in Settings.
                     </p>
                     {onOpenSettings && (
                         <button
@@ -480,7 +480,7 @@ Expected: clean `tsc -b` + Vite build, no errors.
 If a project with no matching tests is available locally:
 - `npm run build -w @debug-gui/server`
 - `node packages/debug-gui/bin/debug-gui.js`
-- Confirm the sidebar shows the "No test files discovered" nudge with a working "Open Settings ⚙" button.
+- Confirm the sidebar shows the "Looks like there are no test files yet" nudge with a working "Open Settings ⚙" button.
 - Open Settings → clear all globs → click Save → confirm the empty-list hint appears under each list.
 - In Settings → Browse… → set extensions to something nonsensical (e.g. `qqq`) → confirm "No files matched." appears inside the picker box.
 

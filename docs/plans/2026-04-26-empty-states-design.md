@@ -20,9 +20,10 @@ Goal: replace each empty surface with a short text nudge plus, where actionable,
 
 ### `TestTree` — most painful, gets the strongest nudge
 - When `suites.length === 0`, render a centered block beneath the heading:
-  - Dim text: "No test files discovered." (line 1)
-  - Dim text: "Check your discovery globs in Settings." (line 2)
+  - Dim text: "Looks like there are no test files yet." (line 1)
+  - Dim text: "Configure where to find them in Settings." (line 2)
   - Primary action button: "Open Settings ⚙" — calls a new `onOpenSettings` callback prop.
+  - Tone: warm/welcoming. This is QA's first-launch impression on an empty project; we lean toward inviting setup over diagnostic finger-pointing.
 - `App.tsx` passes `onOpenSettings={() => setSettingsOpen(true)}` (the same setter the existing gear button uses).
 - The button is disabled if `settingsDisabled` (running / pre-running / paused) for consistency with the gear icon. Caller passes that through too.
 
