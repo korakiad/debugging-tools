@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { toTreeData, resolveSelection, buildFilterFromExtensions, type FsTreeNode } from "./TreePicker";
+import { render, screen, waitFor } from "@testing-library/react";
+import { TreePicker, toTreeData, resolveSelection, buildFilterFromExtensions, type FsTreeNode } from "./TreePicker";
 
 describe("toTreeData", () => {
     it("encodes kind+path into value and drops the synthetic root", () => {
@@ -93,5 +94,25 @@ describe("resolveSelection", () => {
 
     it("handles empty array", () => {
         expect(resolveSelection([])).toEqual({ dirs: [], files: [] });
+    });
+});
+
+describe("TreePicker render", () => {
+    it("shows an empty-state nudge when the fetched tree has no children", async () => {
+        const fetchTree = async () => ({
+            root: { name: "proj", path: "", isDir: true, children: [] } as FsTreeNode,
+        });
+        render(
+            <TreePicker
+                open
+                fetchTree={fetchTree}
+                onPick={() => {}}
+                onCancel={() => {}}
+            />
+        );
+        await waitFor(() => {
+            expect(screen.getByText(/no files matched/i)).toBeInTheDocument();
+        });
+        expect(screen.getByText(/widening the extensions/i)).toBeInTheDocument();
     });
 });
