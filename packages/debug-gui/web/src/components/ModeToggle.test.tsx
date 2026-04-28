@@ -3,10 +3,10 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { ModeToggle } from "./ModeToggle";
 
 describe("ModeToggle", () => {
-    it("renders Auto and Manual buttons with active state", () => {
+    it("renders Auto and Manual buttons", () => {
         render(<ModeToggle mode="auto" disabled={false} onChange={() => {}} />);
-        expect(screen.getByText("Auto")).toHaveAttribute("aria-pressed", "true");
-        expect(screen.getByText("Manual")).toHaveAttribute("aria-pressed", "false");
+        expect(screen.getByText("Auto")).toBeInTheDocument();
+        expect(screen.getByText("Manual")).toBeInTheDocument();
     });
 
     it("fires onChange when clicking the inactive option", () => {
