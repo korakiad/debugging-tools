@@ -13,6 +13,13 @@ export type ServerEvent =
     | { type: "chat_final"; content: string }
     | { type: "diff"; reqId: string; file: string; oldCode: string; newCode: string }
     | { type: "pick"; reqId: string; imageUrl: string; hint: string }
+    | {
+        type: "prompt";
+        reqId: string;
+        summary: string;
+        options: { id: string; label: string; detail?: string }[];
+        allowFreeText: boolean;
+    }
     | { type: "config_updated"; config: unknown }
     | { type: "suites_updated"; suites: unknown[] }
     | { type: "error"; message: string };
@@ -34,8 +41,15 @@ export type ClientCommand =
     | { type: "diff_decision"; reqId: string; action: "approved" | "rejected"; reason?: string }
     | { type: "pick_result"; reqId: string; selector: string; attrs: Record<string, unknown> }
     | {
+        type: "prompt_response";
+        reqId: string;
+        choice: string | null;
+        freeText: string | null;
+    }
+    | {
         type: "settings_update";
         preRun?: string;
         idleTimeoutMs?: number;
+        mode?: "auto" | "manual";
         discovery?: { globs?: string[]; exclude?: string[]; extensions?: string[] };
     };
