@@ -351,6 +351,13 @@ export async function main(
                 }
                 patch.idleTimeoutMs = cmd.idleTimeoutMs;
             }
+            if (cmd.mode !== undefined) {
+                if (cmd.mode !== "auto" && cmd.mode !== "manual") {
+                    hub.broadcast({ type: "error", message: "Save settings: mode must be 'auto' or 'manual'" });
+                    return;
+                }
+                patch.mode = cmd.mode;
+            }
             if (cmd.discovery !== undefined) {
                 const d: { globs?: string[]; exclude?: string[]; extensions?: string[] } = {};
                 if (cmd.discovery.globs !== undefined) {
