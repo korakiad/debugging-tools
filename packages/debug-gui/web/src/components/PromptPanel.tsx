@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { EfPanel } from "../ui";
+import { EfButton, EfPanel } from "../ui";
 
 export interface PromptOption {
     id: string;
@@ -25,7 +25,7 @@ export function PromptPanel({
     return (
         <EfPanel spacing style={{ display: "block" }}>
             <div
-                className="p-2 text-sm"
+                className="px-3 py-2 text-sm"
                 style={{ borderBottom: "1px solid var(--ef-border-color)" }}
             >
                 {summary}
@@ -35,45 +35,36 @@ export function PromptPanel({
                     <button
                         type="button"
                         key={o.id}
+                        className="prompt-option"
                         onClick={() =>
                             onRespond({
                                 choice: o.id,
                                 freeText: trimmed.length > 0 ? trimmed : null,
                             })
                         }
-                        className="text-left px-3 py-2 rounded border"
-                        style={{
-                            borderColor: "var(--ef-border-color)",
-                            background: "var(--ef-content-secondary-background-color)",
-                            color: "var(--ef-color)",
-                        }}
                     >
-                        <div className="font-bold text-sm">{o.label}</div>
+                        <span className="prompt-option__label">{o.label}</span>
                         {o.detail && (
-                            <div className="text-xs opacity-70">{o.detail}</div>
+                            <span className="prompt-option__detail">{o.detail}</span>
                         )}
                     </button>
                 ))}
             </div>
             {allowFreeText && (
                 <div
-                    className="p-2 flex flex-col gap-2"
+                    className="p-2 flex items-end gap-2"
                     style={{ borderTop: "1px solid var(--ef-border-color)" }}
                 >
                     <textarea
                         value={text}
                         onChange={(e) => setText(e.target.value)}
                         rows={2}
-                        className="p-1 text-sm rounded"
-                        style={{
-                            background: "var(--ef-content-primary-background-color)",
-                            border: "1px solid var(--ef-border-color)",
-                            color: "var(--ef-color)",
-                        }}
+                        placeholder="Add notes (optional)…"
+                        className="prompt-textarea"
                     />
-                    <button
-                        type="button"
-                        disabled={sendDisabled}
+                    <EfButton
+                        cta
+                        disabled={sendDisabled || undefined}
                         onClick={() => {
                             if (sendDisabled) return;
                             onRespond({
@@ -81,15 +72,9 @@ export function PromptPanel({
                                 freeText: trimmed.length > 0 ? trimmed : null,
                             });
                         }}
-                        className="self-end px-3 py-1 rounded border disabled:opacity-40 disabled:cursor-not-allowed"
-                        style={{
-                            borderColor: "var(--ef-border-color)",
-                            background: "var(--ef-accent-color)",
-                            color: "var(--ef-content-primary-color)",
-                        }}
                     >
                         Send
-                    </button>
+                    </EfButton>
                 </div>
             )}
         </EfPanel>

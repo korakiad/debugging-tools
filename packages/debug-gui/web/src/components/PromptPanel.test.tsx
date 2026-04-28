@@ -48,15 +48,21 @@ describe("PromptPanel", () => {
         expect(onRespond).toHaveBeenCalledWith({ choice: "apply_a", freeText: "extra context" });
     });
 
-    it("Send is disabled when no options and textarea empty", () => {
+    it("clicking Send is a no-op when no options and textarea empty", () => {
+        // Behavioural check: ef-button's `disabled` reflects via Lit's async
+        // update cycle (and not as the HTML disabled attribute), so we assert
+        // the user-visible effect — Send must not invoke onRespond — instead
+        // of inspecting attributes.
+        const onRespond = vi.fn();
         render(
             <PromptPanel
                 summary="x"
                 options={[]}
                 allowFreeText={true}
-                onRespond={() => {}}
+                onRespond={onRespond}
             />,
         );
-        expect(screen.getByText("Send")).toBeDisabled();
+        fireEvent.click(screen.getByText("Send"));
+        expect(onRespond).not.toHaveBeenCalled();
     });
 });

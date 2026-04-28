@@ -143,19 +143,24 @@ export function TestTree({
                         const fileSelected = isSelected(s.relPath, null);
                         return (
                             <li key={s.relPath}>
-                                <div className="flex items-center">
+                                <div
+                                    className={
+                                        "suite-item suite-item-group" +
+                                        (fileSelected ? " suite-item-selected" : "")
+                                    }
+                                >
                                     <button
                                         type="button"
                                         aria-label={isOpen ? `collapse ${s.relPath}` : `expand ${s.relPath}`}
                                         aria-expanded={isOpen}
-                                        className="px-1 text-xs opacity-70 hover:opacity-100"
+                                        className="suite-toggle text-xs opacity-70 hover:opacity-100"
                                         onClick={() => toggleExpand(s.relPath)}
                                     >
                                         {isOpen ? "▾" : "▸"}
                                     </button>
                                     <button
                                         type="button"
-                                        className={`suite-row flex-1 text-left${fileSelected ? " suite-row-selected" : ""}`}
+                                        className="suite-row"
                                         aria-pressed={fileSelected}
                                         onClick={() => onSelect({ spec: s.relPath, node: null })}
                                     >
@@ -230,19 +235,26 @@ function NodeRow({
 
     return (
         <li>
-            <div className="flex items-center" style={{ paddingLeft: `${depth * 12}px` }}>
+            <div
+                className={
+                    "suite-item " +
+                    (node.kind === "describe" ? "suite-item-group " : "") +
+                    (selected ? "suite-item-selected " : "")
+                }
+                style={{ paddingLeft: `${depth * 12}px` }}
+            >
                 {node.kind === "describe" && node.children.length > 0 ? (
                     <button
                         type="button"
                         aria-label={open ? `collapse ${node.title}` : `expand ${node.title}`}
                         aria-expanded={open}
-                        className="px-1 text-xs opacity-70 hover:opacity-100"
+                        className="suite-toggle text-xs opacity-70 hover:opacity-100"
                         onClick={() => setOpen((v) => !v)}
                     >
                         {open ? "▾" : "▸"}
                     </button>
                 ) : (
-                    <span className="px-1 text-xs opacity-30 select-none">·</span>
+                    <span className="suite-toggle text-xs opacity-30 select-none">·</span>
                 )}
                 <button
                     type="button"
@@ -250,8 +262,7 @@ function NodeRow({
                     aria-disabled={dynamic || undefined}
                     title={dynamic ? "Dynamic title — running this row falls back to the whole file" : node.fullTitle}
                     className={
-                        "suite-row flex-1 text-left text-xs " +
-                        (selected ? "suite-row-selected " : "") +
+                        "suite-row text-xs " +
                         (node.kind === "describe" ? "font-semibold " : "") +
                         (node.pending ? "opacity-60 italic " : "") +
                         (dynamic ? "opacity-60 " : "")

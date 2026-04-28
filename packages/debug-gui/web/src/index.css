@@ -2,37 +2,199 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Override halo native-elements.css button constraints for list-item buttons.
-   Halo forces: height:24px, display:inline-flex, overflow:hidden, min-width:60px
-   — none of which suit a multi-line wrapping text row. */
-.suite-row {
-    display: block;
+/* Suite-row mirrors refinitiv-ui's ef-tree-item (halo dark): flat list
+   rows with collapsed top/bottom borders, subtle resting bg, group rows
+   slightly lighter, selection = #333 + 3px primary accent stripe (not
+   full blue). Hover/focus is the only state that uses full primary blue.
+   .suite-item is the outer chrome (border + bg) that wraps the toggle
+   and the .suite-row label so the disclosure arrow is visually inside
+   the row, not floating outside it.
+   Source: node_modules/@refinitiv-ui/elements/lib/tree/themes/halo/dark/. */
+.suite-item {
+    display: flex;
+    align-items: stretch;
     width: 100%;
-    height: auto;
-    min-height: 0;
+    box-sizing: border-box;
     min-width: 0;
-    overflow: visible;
+    min-height: 28px;
+    background-color: #1a1a1a;
+    border: 0;
+    border-left: 3px solid transparent;
+    border-top: 1px solid #404040;
+    border-bottom: 1px solid #404040;
+    margin-top: -1px;
+    color: inherit;
+    transition: background-color 120ms, color 120ms, border-left-color 120ms;
+}
+.suite-item-group {
+    background-color: #262626;
+}
+.suite-item:hover {
+    background-color: var(--ef-primary, #1429bd);
+    color: #fff;
+    border-top-color: var(--ef-primary, #1429bd);
+    border-bottom-color: var(--ef-primary, #1429bd);
+}
+.suite-item-selected {
+    background-color: #333;
+    color: #fff;
+    border-left-color: var(--ef-primary, #334bff);
+}
+.suite-item-selected:hover {
+    background-color: var(--ef-primary, #1429bd);
+    color: #fff;
+    border-top-color: var(--ef-primary, #1429bd);
+    border-bottom-color: var(--ef-primary, #1429bd);
+}
+
+/* Inner clickable label — transparent so the wrapper's chrome shows
+   through. Tests assert by .suite-row class so that name is preserved. */
+.suite-row {
+    flex: 1;
+    min-width: 0;
+    display: block;
     text-align: left;
-    padding: 0.5rem;
+    background: transparent;
+    border: 0;
+    padding: 4px 8px;
     font-size: 0.85rem;
     line-height: 1.3;
-    border-radius: 4px;
-    background: transparent;
-    border: 1px solid transparent;
     color: inherit;
+    cursor: pointer;
     word-break: break-all;
     overflow-wrap: anywhere;
-    transition: background 120ms, color 120ms;
+    /* Halo's native-elements.css forces every <button> to height:24px and
+       overflow:hidden — so wrapped text would otherwise either clip or
+       spill below the bordered row container. height:auto lets the inner
+       label grow with content; align-items:stretch on .suite-item then
+       grows the chrome to match. */
+    height: auto;
+    overflow: visible;
+}
+/* Halo's button:focus:not([focused]){bg:#333} (specificity 0,2,1) would
+   otherwise repaint the inner label grey on click. Match its specificity
+   so source order wins (index.css loads after the halo theme). */
+button.suite-row:focus,
+button.suite-row:focus:not([focused]) {
+    background: transparent;
+    color: inherit;
+    box-shadow: none;
+    outline: 0;
+}
+
+/* Expand-toggle button. Halo's native-elements.css styles every <button>
+   with bg:#333, min-width:60px, height:24px and a blue hover — that wraps
+   the small ▾/▸ glyph in a dark chip and swallows it visually. Mirror
+   refinitiv-ui's own ef-tree-item [part=toggle]: transparent square that
+   stretches to the row's full height so click targets line up. */
+.suite-toggle {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    align-self: stretch;
+    flex-shrink: 0;
+    width: 22px;
+    height: auto;
+    min-width: 0;
+    min-height: 0;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    color: inherit;
     cursor: pointer;
+    line-height: 1;
 }
-.suite-row:hover {
-    background: var(--ef-primary, #1429bd);
+.suite-toggle:hover {
+    background: transparent;
     color: #fff;
-    border-color: var(--ef-primary, #1429bd);
 }
-.suite-row-selected,
-.suite-row-selected:hover {
-    background: var(--ef-primary, #1429bd);
-    color: #fff;
+button.suite-toggle:focus,
+button.suite-toggle:focus:not([focused]) {
+    background: transparent;
+    box-shadow: none;
+    outline: 0;
+}
+
+/* Prompt option — clickable card for ask_user choices. Halo's
+   native-elements.css forces every <button> to height:24px,
+   overflow:hidden, min-width:60px, bg:#333 with a blue hover halo,
+   which clips the multi-line label+detail and makes adjacent options
+   visually overlap. Mirror the .suite-row escape hatch: reset to a
+   transparent block, allow content to grow, and override
+   button:focus:not([focused]) at matching specificity. */
+.prompt-option {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    box-sizing: border-box;
+    min-width: 0;
+    height: auto;
+    min-height: 0;
+    padding: 10px 12px;
+    text-align: left;
+    background-color: #1a1a1a;
+    color: inherit;
+    border: 1px solid #404040;
+    border-radius: 2px;
+    cursor: pointer;
+    overflow: visible;
+    transition: background-color 120ms, border-color 120ms, color 120ms;
+}
+.prompt-option:hover {
+    background-color: var(--ef-primary, #1429bd);
     border-color: var(--ef-primary, #1429bd);
+    color: #fff;
+}
+button.prompt-option:focus,
+button.prompt-option:focus:not([focused]) {
+    background-color: #1a1a1a;
+    color: inherit;
+    box-shadow: none;
+    outline: 0;
+}
+button.prompt-option:focus-visible {
+    border-color: var(--ef-primary, #334bff);
+    outline: 0;
+}
+.prompt-option__label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    line-height: 1.35;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+.prompt-option__detail {
+    font-size: 0.75rem;
+    line-height: 1.4;
+    opacity: 0.7;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+
+/* Free-text notes box paired with the prompt option list. Halo theme
+   has no ef-text-area; this matches ef-text-field's resting chrome. */
+.prompt-textarea {
+    flex: 1;
+    min-width: 0;
+    box-sizing: border-box;
+    padding: 6px 8px;
+    font: inherit;
+    font-size: 0.8rem;
+    line-height: 1.4;
+    color: var(--ef-color, inherit);
+    background-color: var(--ef-content-primary-background-color, #1a1a1a);
+    border: 1px solid #404040;
+    border-radius: 2px;
+    resize: vertical;
+}
+.prompt-textarea:focus {
+    border-color: var(--ef-primary, #334bff);
+    outline: 0;
 }
