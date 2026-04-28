@@ -28,6 +28,12 @@ export interface Pick {
     imageUrl: string;
     hint: string;
 }
+export interface Prompt {
+    reqId: string;
+    summary: string;
+    options: { id: string; label: string; detail?: string }[];
+    allowFreeText: boolean;
+}
 
 export interface ServerEvent {
     type: string;
@@ -81,6 +87,7 @@ interface Store {
     chatMessages: Array<{ role: "assistant" | "user"; content: string }>;
     pendingDiff: Diff | null;
     pendingPick: Pick | null;
+    pendingPrompt: Prompt | null;
     mochaLog: MochaLogLine[];
     mochaExitCode: number | null | undefined;
     agentThinking: boolean;
@@ -98,6 +105,7 @@ export const useStore = create<Store>((set) => ({
     chatMessages: [],
     pendingDiff: null,
     pendingPick: null,
+    pendingPrompt: null,
     mochaLog: [],
     mochaExitCode: undefined,
     agentThinking: false,
@@ -149,6 +157,16 @@ export const useStore = create<Store>((set) => ({
             }
             if (e.type === "pick") {
                 return { pendingPick: { reqId: e.reqId, imageUrl: e.imageUrl, hint: e.hint } };
+            }
+            if (e.type === "prompt") {
+                return {
+                    pendingPrompt: {
+                        reqId: e.reqId,
+                        summary: e.summary,
+                        options: e.options,
+                        allowFreeText: e.allowFreeText,
+                    },
+                };
             }
             if (e.type === "mocha_log") {
                 const next = [...s.mochaLog, { stream: e.stream, text: e.text }];

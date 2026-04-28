@@ -13,6 +13,7 @@ describe("store", () => {
             chatMessages: [],
             pendingDiff: null,
             pendingPick: null,
+            pendingPrompt: null,
             mochaLog: [],
             mochaExitCode: undefined,
             agentThinking: false,
@@ -109,5 +110,31 @@ describe("store", () => {
             ],
         });
         expect(useStore.getState().selectedSpec).toBe("test/login.spec.js");
+    });
+
+    it("sets pendingPrompt on prompt event", () => {
+        useStore.getState().applyEvent({
+            type: "prompt",
+            reqId: "r1",
+            summary: "Login button not found",
+            options: [
+                { id: "apply_a", label: "Use [data-test=login]" },
+                { id: "investigate_b", label: "Inspect modal first" },
+            ],
+            allowFreeText: true,
+        });
+        const p = useStore.getState().pendingPrompt;
+        expect(p?.reqId).toBe("r1");
+        expect(p?.summary).toBe("Login button not found");
+        expect(p?.options).toHaveLength(2);
+        expect(p?.allowFreeText).toBe(true);
+    });
+
+    it("clears pendingPrompt when explicitly reset (response sent)", () => {
+        useStore.setState({
+            pendingPrompt: { reqId: "r1", summary: "x", options: [], allowFreeText: false },
+        });
+        useStore.setState({ pendingPrompt: null });
+        expect(useStore.getState().pendingPrompt).toBeNull();
     });
 });
