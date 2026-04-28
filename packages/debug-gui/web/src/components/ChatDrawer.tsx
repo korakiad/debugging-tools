@@ -1,14 +1,23 @@
 import { useState } from "react";
 import { useStore } from "../state/store";
 import { Spinner } from "./Spinner";
+import { PromptPanel, type PromptOption } from "./PromptPanel";
 import { EfButton, EfTextField } from "../ui";
 
 export function ChatDrawer({
     onSend,
     onAbort,
+    pendingPrompt,
+    onPromptRespond,
 }: {
     onSend: (prompt: string) => void;
     onAbort: () => void;
+    pendingPrompt: {
+        summary: string;
+        options: PromptOption[];
+        allowFreeText: boolean;
+    } | null;
+    onPromptRespond: (r: { choice: string | null; freeText: string | null }) => void;
 }) {
     const messages = useStore((s) => s.chatMessages);
     const thinking = useStore((s) => s.agentThinking);
@@ -42,6 +51,14 @@ export function ChatDrawer({
                             </EfButton>
                         </span>
                     </div>
+                )}
+                {pendingPrompt && (
+                    <PromptPanel
+                        summary={pendingPrompt.summary}
+                        options={pendingPrompt.options}
+                        allowFreeText={pendingPrompt.allowFreeText}
+                        onRespond={onPromptRespond}
+                    />
                 )}
             </div>
             <div

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { EfButton, EfPanel } from "../ui";
+import { EfButton } from "../ui";
 
 export interface PromptOption {
     id: string;
@@ -23,38 +23,33 @@ export function PromptPanel({
     const sendDisabled = options.length === 0 && trimmed.length === 0;
 
     return (
-        <EfPanel spacing style={{ display: "block" }}>
-            <div
-                className="px-3 py-2 text-sm"
-                style={{ borderBottom: "1px solid var(--ef-border-color)" }}
-            >
-                {summary}
-            </div>
-            <div className="p-2 flex flex-col gap-2">
-                {options.map((o) => (
-                    <button
-                        type="button"
-                        key={o.id}
-                        className="prompt-option"
-                        onClick={() =>
-                            onRespond({
-                                choice: o.id,
-                                freeText: trimmed.length > 0 ? trimmed : null,
-                            })
-                        }
-                    >
-                        <span className="prompt-option__label">{o.label}</span>
-                        {o.detail && (
-                            <span className="prompt-option__detail">{o.detail}</span>
-                        )}
-                    </button>
-                ))}
-            </div>
+        <div className="text-sm space-y-2">
+            <div className="font-bold">assistant:</div>
+            <div className="prompt-summary">{summary}</div>
+            {options.length > 0 && (
+                <div className="flex flex-col gap-2 pt-1">
+                    {options.map((o) => (
+                        <button
+                            type="button"
+                            key={o.id}
+                            className="prompt-option"
+                            onClick={() =>
+                                onRespond({
+                                    choice: o.id,
+                                    freeText: trimmed.length > 0 ? trimmed : null,
+                                })
+                            }
+                        >
+                            <span className="prompt-option__label">{o.label}</span>
+                            {o.detail && (
+                                <span className="prompt-option__detail">{o.detail}</span>
+                            )}
+                        </button>
+                    ))}
+                </div>
+            )}
             {allowFreeText && (
-                <div
-                    className="p-2 flex items-end gap-2"
-                    style={{ borderTop: "1px solid var(--ef-border-color)" }}
-                >
+                <div className="flex items-end gap-2 pt-1">
                     <textarea
                         value={text}
                         onChange={(e) => setText(e.target.value)}
@@ -77,6 +72,6 @@ export function PromptPanel({
                     </EfButton>
                 </div>
             )}
-        </EfPanel>
+        </div>
     );
 }

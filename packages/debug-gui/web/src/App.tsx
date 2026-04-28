@@ -9,7 +9,6 @@ import { findNode } from "./lib/findNode";
 import { FailureCard } from "./components/FailureCard";
 import { DiffView } from "./components/DiffView";
 import { PickerOverlay } from "./components/PickerOverlay";
-import { PromptPanel } from "./components/PromptPanel";
 import { ModeToggle, type AgentMode } from "./components/ModeToggle";
 import { ChatDrawer } from "./components/ChatDrawer";
 import { MochaLogPanel } from "./components/MochaLogPanel";
@@ -161,37 +160,31 @@ export default function App() {
                 )}
                 {state.currentFailure && <FailureCard failure={state.currentFailure} />}
                 <MochaLogPanel />
-                {prompt ? (
-                    <PromptPanel
-                        summary={prompt.summary}
-                        options={prompt.options}
-                        allowFreeText={prompt.allowFreeText}
-                        onRespond={({ choice, freeText }) => {
-                            send({ type: "prompt_response", reqId: prompt.reqId, choice, freeText });
-                            useStore.setState({ pendingPrompt: null });
+                {diff && (
+                    <DiffView
+                        file={diff.file}
+                        oldCode={diff.oldCode}
+                        newCode={diff.newCode}
+                        onApprove={() => {
+                            send({ type: "diff_decision", reqId: diff.reqId, action: "approved" });
+                            useStore.setState({ pendingDiff: null });
+                        }}
+                        onReject={() => {
+                            send({ type: "diff_decision", reqId: diff.reqId, action: "rejected", reason: "" });
+                            useStore.setState({ pendingDiff: null });
                         }}
                     />
-                ) : (
-                    diff && (
-                        <DiffView
-                            file={diff.file}
-                            oldCode={diff.oldCode}
-                            newCode={diff.newCode}
-                            onApprove={() => {
-                                send({ type: "diff_decision", reqId: diff.reqId, action: "approved" });
-                                useStore.setState({ pendingDiff: null });
-                            }}
-                            onReject={() => {
-                                send({ type: "diff_decision", reqId: diff.reqId, action: "rejected", reason: "" });
-                                useStore.setState({ pendingDiff: null });
-                            }}
-                        />
-                    )
                 )}
             </main>
             <ChatDrawer
                 onSend={(prompt) => send({ type: "chat_send", prompt })}
                 onAbort={() => send({ type: "agent_abort" })}
+                pendingPrompt={prompt}
+                onPromptRespond={({ choice, freeText }) => {
+                    if (!prompt) return;
+                    send({ type: "prompt_response", reqId: prompt.reqId, choice, freeText });
+                    useStore.setState({ pendingPrompt: null });
+                }}
             />
             {pick && (
                 <PickerOverlay

@@ -118,6 +118,21 @@ button.suite-toggle:focus:not([focused]) {
     outline: 0;
 }
 
+/* Summary text for an ask_user prompt rendered inline in the chat
+   drawer. Sits between the "assistant:" label and the option buttons,
+   so it needs to read as a multi-line message body — generous
+   line-height, soft accent border-left, no panel chrome. */
+.prompt-summary {
+    padding: 8px 10px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    background-color: rgba(255, 255, 255, 0.03);
+    border-left: 2px solid var(--ef-primary, #334bff);
+    border-radius: 2px;
+}
+
 /* Prompt option — clickable card for ask_user choices. Halo's
    native-elements.css forces every <button> to height:24px,
    overflow:hidden, min-width:60px, bg:#333 with a blue hover halo,
