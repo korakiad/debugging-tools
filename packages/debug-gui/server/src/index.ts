@@ -14,6 +14,7 @@ import { createApp, WsHub } from "./server.js";
 import { buildSessionConfig } from "./agent.js";
 import { makeEditFileTool } from "./tools/editFile.js";
 import { makePickElementTool } from "./tools/pickElement.js";
+import { makeAskUserTool } from "./tools/askUser.js";
 import { drainResolvers, type PendingResolver } from "./resolvers.js";
 import { captureScreenshot, SCREENSHOT_DIR } from "./screenshot.js";
 import { launchAppMode } from "./launcher.js";
@@ -50,6 +51,7 @@ export async function main(
 
     const editResolvers = new Map<string, PendingResolver<{ approved: boolean; reason?: string }>>();
     const pickResolvers = new Map<string, PendingResolver<Record<string, unknown>>>();
+    const askResolvers = new Map<string, PendingResolver<{ choice: string | null; freeText: string | null }>>();
 
     const app = createApp({
         cwd,
@@ -125,6 +127,15 @@ export async function main(
                 return new Promise((resolve, reject) => {
                     pickResolvers.set(reqId, { resolve, reject });
                     hub.broadcast({ type: "pick", reqId, imageUrl, hint });
+                });
+            },
+        }),
+        makeAskUserTool({
+            onAsk: (summary, options, allowFreeText) => {
+                const reqId = Math.random().toString(36).slice(2);
+                return new Promise((resolve, reject) => {
+                    askResolvers.set(reqId, { resolve, reject });
+                    hub.broadcast({ type: "prompt", reqId, summary, options, allowFreeText });
                 });
             },
         }),
@@ -274,6 +285,13 @@ export async function main(
                 pickResolvers.delete(cmd.reqId);
             }
         }
+        if (cmd.type === "prompt_response") {
+            const resolver = askResolvers.get(cmd.reqId);
+            if (resolver) {
+                resolver.resolve({ choice: cmd.choice, freeText: cmd.freeText });
+                askResolvers.delete(cmd.reqId);
+            }
+        }
         if (cmd.type === "continue") {
             await hooker.postContinue();
             session.markResumed();
@@ -290,6 +308,7 @@ export async function main(
             }
             drainResolvers(editResolvers);
             drainResolvers(pickResolvers);
+            drainResolvers(askResolvers);
         }
         if (cmd.type === "cancel") {
             if (preRunPid) {
@@ -306,6 +325,7 @@ export async function main(
             session.reset();
             drainResolvers(editResolvers);
             drainResolvers(pickResolvers);
+            drainResolvers(askResolvers);
         }
         if (cmd.type === "settings_update") {
             const patch: Parameters<typeof saveConfig>[1] = {};
