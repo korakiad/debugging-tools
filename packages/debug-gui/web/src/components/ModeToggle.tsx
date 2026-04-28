@@ -1,3 +1,4 @@
+import type React from "react";
 import { EfButton } from "../ui";
 
 export type AgentMode = "auto" | "manual";
@@ -16,7 +17,11 @@ export function ModeToggle({
             {(["auto", "manual"] as const).map((m) => {
                 const active = mode === m;
                 const props: Record<string, unknown> = {
-                    onClick: () => {
+                    onClick: (e: React.MouseEvent<HTMLElement>) => {
+                        // Blur immediately so refinitiv-ui's focus halo doesn't
+                        // linger on top of the cta blue — this toggle is a
+                        // momentary action, not a focused form control.
+                        e.currentTarget.blur();
                         if (!active && !disabled) onChange(m);
                     },
                 };
