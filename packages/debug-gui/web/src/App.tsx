@@ -9,6 +9,7 @@ import { findNode } from "./lib/findNode";
 import { FailureCard } from "./components/FailureCard";
 import { DiffView } from "./components/DiffView";
 import { PickerOverlay } from "./components/PickerOverlay";
+import { PromptPanel } from "./components/PromptPanel";
 import { ChatDrawer } from "./components/ChatDrawer";
 import { MochaLogPanel } from "./components/MochaLogPanel";
 import { Spinner } from "./components/Spinner";
@@ -33,6 +34,7 @@ export default function App() {
     const previewCode = matchedNode ? sliceSource(tree?.source, matchedNode.line, matchedNode.endLine) : null;
     const diff = useStore((s) => s.pendingDiff);
     const pick = useStore((s) => s.pendingPick);
+    const prompt = useStore((s) => s.pendingPrompt);
     const config = useStore((s) => s.config) as { preRun?: string } & DebugGuiConfigShape;
     const savedPreRun = config.preRun ?? "";
     // Skip defaults to unchecked on every reload. Persisting it would let a
@@ -152,20 +154,32 @@ export default function App() {
                 )}
                 {state.currentFailure && <FailureCard failure={state.currentFailure} />}
                 <MochaLogPanel />
-                {diff && (
-                    <DiffView
-                        file={diff.file}
-                        oldCode={diff.oldCode}
-                        newCode={diff.newCode}
-                        onApprove={() => {
-                            send({ type: "diff_decision", reqId: diff.reqId, action: "approved" });
-                            useStore.setState({ pendingDiff: null });
-                        }}
-                        onReject={() => {
-                            send({ type: "diff_decision", reqId: diff.reqId, action: "rejected", reason: "" });
-                            useStore.setState({ pendingDiff: null });
+                {prompt ? (
+                    <PromptPanel
+                        summary={prompt.summary}
+                        options={prompt.options}
+                        allowFreeText={prompt.allowFreeText}
+                        onRespond={({ choice, freeText }) => {
+                            send({ type: "prompt_response", reqId: prompt.reqId, choice, freeText });
+                            useStore.setState({ pendingPrompt: null });
                         }}
                     />
+                ) : (
+                    diff && (
+                        <DiffView
+                            file={diff.file}
+                            oldCode={diff.oldCode}
+                            newCode={diff.newCode}
+                            onApprove={() => {
+                                send({ type: "diff_decision", reqId: diff.reqId, action: "approved" });
+                                useStore.setState({ pendingDiff: null });
+                            }}
+                            onReject={() => {
+                                send({ type: "diff_decision", reqId: diff.reqId, action: "rejected", reason: "" });
+                                useStore.setState({ pendingDiff: null });
+                            }}
+                        />
+                    )
                 )}
             </main>
             <ChatDrawer
