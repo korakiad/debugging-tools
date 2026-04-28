@@ -14,5 +14,9 @@ export default defineConfig({
         globals: true,
         environment: "jsdom",
         setupFiles: ["./src/test-setup.ts"],
+        alias: {
+            "@pierre/diffs/worker/worker-portable.js":
+                "/src/test-stubs/pierre-worker-stub.ts",
+        },
     },
 });
