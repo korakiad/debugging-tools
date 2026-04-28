@@ -234,9 +234,17 @@ export async function main(
                         // stays up until the agent actually finishes. Plain
                         // send() resolves as soon as the RPC is acknowledged.
                         const f = snap.currentFailure;
+                        const manualPreamble =
+                            config.agent.mode === "manual"
+                                ? `You are in MANUAL mode. After each CDP/playwright-cli inspection, ` +
+                                  `call ask_user with a 1-line summary and 2-3 suggested next steps as ` +
+                                  `options. Option ids that apply a fix MUST start with 'apply_'. ` +
+                                  `Do NOT call edit_file until QA chooses an apply_* option.\n\n`
+                                : "";
                         await agentSession!.sendAndWait(
                             {
                                 prompt:
+                                    manualPreamble +
                                     `A mocha test just failed and the walkthrough hook paused execution.\n\n` +
                                     `Failure details:\n` +
                                     `  test:  ${f.test}\n` +
