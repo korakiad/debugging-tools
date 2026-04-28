@@ -15,6 +15,10 @@ RESP=$(curl -sf "http://localhost:$PORT/api/init")
 echo "$RESP" | grep -q '"suites"' || { echo "FAIL: no suites in response"; echo "$RESP"; exit 1; }
 echo "SMOKE OK: /api/init returned suites"
 
+echo "$RESP" | grep -q '"mode":"auto"' \
+    || { echo "FAIL: expected agent.mode=auto default in /api/init"; echo "$RESP"; exit 1; }
+echo "SMOKE OK: /api/init defaults agent.mode to auto"
+
 kill $PID 2>/dev/null || true
 wait $PID 2>/dev/null || true
 trap - EXIT
