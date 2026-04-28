@@ -211,3 +211,43 @@ describe("saveConfig", () => {
         expect(loadConfig(dir).discovery.extensions).toBeUndefined();
     });
 });
+
+describe("config.agent.mode", () => {
+    function newPkg(extra: any = {}) {
+        const dir = mkdtempSync(join(tmpdir(), "dgcfg-"));
+        writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "x", ...extra }, null, 2));
+        return dir;
+    }
+
+    it("defaults to 'auto' when absent", () => {
+        const dir = newPkg();
+        expect(loadConfig(dir).agent.mode).toBe("auto");
+    });
+
+    it("loads 'manual' when set", () => {
+        const dir = newPkg({ "debug-gui": { agent: { mode: "manual" } } });
+        expect(loadConfig(dir).agent.mode).toBe("manual");
+    });
+
+    it("silently coerces unknown values to 'auto'", () => {
+        const dir = newPkg({ "debug-gui": { agent: { mode: "bananas" } } });
+        expect(loadConfig(dir).agent.mode).toBe("auto");
+    });
+
+    it("saveConfig round-trips mode and preserves idleTimeoutMs", () => {
+        const dir = newPkg({ "debug-gui": { agent: { idleTimeoutMs: 60000 } } });
+        const next = saveConfig(dir, { mode: "manual" });
+        expect(next.agent.mode).toBe("manual");
+        expect(next.agent.idleTimeoutMs).toBe(60000);
+        const onDisk = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+        expect(onDisk["debug-gui"].agent.mode).toBe("manual");
+        expect(onDisk["debug-gui"].agent.idleTimeoutMs).toBe(60000);
+    });
+
+    it("saveConfig back to 'auto' rewrites disk", () => {
+        const dir = newPkg({ "debug-gui": { agent: { mode: "manual" } } });
+        saveConfig(dir, { mode: "auto" });
+        const onDisk = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+        expect(onDisk["debug-gui"].agent.mode).toBe("auto");
+    });
+});

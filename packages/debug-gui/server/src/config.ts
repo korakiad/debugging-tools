@@ -10,7 +10,7 @@ export interface DebugGuiConfig {
     };
     cdp: { port: number };
     discovery: { globs: string[]; exclude: string[]; extensions?: string[] };
-    agent: { idleTimeoutMs: number };
+    agent: { idleTimeoutMs: number; mode: "auto" | "manual" };
     preRun?: string;
 }
 
@@ -42,7 +42,10 @@ export function loadConfig(cwd: string): DebugGuiConfig {
             exclude,
             extensions,
         },
-        agent: { idleTimeoutMs: dg.agent?.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS },
+        agent: {
+            idleTimeoutMs: dg.agent?.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS,
+            mode: dg.agent?.mode === "manual" ? "manual" : "auto",
+        },
         preRun: typeof dg.preRun === "string" && dg.preRun.length > 0 ? dg.preRun : undefined,
     };
 }
@@ -50,6 +53,7 @@ export function loadConfig(cwd: string): DebugGuiConfig {
 export interface ConfigPatch {
     preRun?: string;
     idleTimeoutMs?: number;
+    mode?: "auto" | "manual";
     discovery?: {
         globs?: string[];
         exclude?: string[];
@@ -74,6 +78,10 @@ export function saveConfig(cwd: string, patch: ConfigPatch): DebugGuiConfig {
 
     if (patch.idleTimeoutMs !== undefined) {
         block.agent = { ...(block.agent ?? {}), idleTimeoutMs: patch.idleTimeoutMs };
+    }
+
+    if (patch.mode !== undefined) {
+        block.agent = { ...(block.agent ?? {}), mode: patch.mode };
     }
 
     if (patch.discovery) {
