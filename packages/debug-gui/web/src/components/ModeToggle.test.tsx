@@ -25,7 +25,14 @@ describe("ModeToggle", () => {
 
     it("disables both buttons when disabled prop is true", () => {
         render(<ModeToggle mode="auto" disabled={true} onChange={() => {}} />);
-        expect(screen.getByText("Auto")).toBeDisabled();
-        expect(screen.getByText("Manual")).toBeDisabled();
+        expect(screen.getByText("Auto")).toHaveAttribute("aria-disabled", "true");
+        expect(screen.getByText("Manual")).toHaveAttribute("aria-disabled", "true");
+    });
+
+    it("does not fire onChange when disabled and inactive option is clicked", () => {
+        const onChange = vi.fn();
+        render(<ModeToggle mode="auto" disabled={true} onChange={onChange} />);
+        fireEvent.click(screen.getByText("Manual"));
+        expect(onChange).not.toHaveBeenCalled();
     });
 });

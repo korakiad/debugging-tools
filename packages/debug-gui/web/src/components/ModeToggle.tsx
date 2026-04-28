@@ -1,3 +1,5 @@
+import { EfButton } from "../ui";
+
 export type AgentMode = "auto" | "manual";
 
 export function ModeToggle({
@@ -10,29 +12,25 @@ export function ModeToggle({
     onChange: (next: AgentMode) => void;
 }) {
     return (
-        <div
-            className="inline-flex rounded border"
-            style={{ borderColor: "var(--ef-border-color)" }}
-        >
+        <div className="inline-flex gap-1">
             {(["auto", "manual"] as const).map((m) => {
                 const active = mode === m;
+                const props: Record<string, unknown> = {
+                    onClick: () => {
+                        if (!active && !disabled) onChange(m);
+                    },
+                };
+                if (active) props.cta = true;
+                if (disabled) props["aria-disabled"] = "true";
+                if (disabled) props.disabled = true;
                 return (
-                    <button
+                    <EfButton
                         key={m}
-                        type="button"
                         aria-pressed={active}
-                        disabled={disabled}
-                        className="px-2 py-1 text-xs disabled:opacity-40"
-                        style={{
-                            background: active ? "var(--ef-accent-color)" : "transparent",
-                            color: active ? "var(--ef-content-primary-color)" : "inherit",
-                        }}
-                        onClick={() => {
-                            if (!active) onChange(m);
-                        }}
+                        {...props}
                     >
                         {m === "auto" ? "Auto" : "Manual"}
-                    </button>
+                    </EfButton>
                 );
             })}
         </div>
