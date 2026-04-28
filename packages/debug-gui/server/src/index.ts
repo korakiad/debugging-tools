@@ -14,6 +14,7 @@ import { createApp, WsHub } from "./server.js";
 import { buildSessionConfig } from "./agent.js";
 import { makeEditFileTool } from "./tools/editFile.js";
 import { makePickElementTool } from "./tools/pickElement.js";
+import { drainResolvers, type PendingResolver } from "./resolvers.js";
 import { captureScreenshot, SCREENSHOT_DIR } from "./screenshot.js";
 import { launchAppMode } from "./launcher.js";
 import { CopilotClient } from "@github/copilot-sdk";
@@ -47,8 +48,8 @@ export async function main(
         if (session.getState().state !== "paused") session.markDone();
     });
 
-    const editResolvers = new Map<string, (d: { approved: boolean; reason?: string }) => void>();
-    const pickResolvers = new Map<string, (attrs: Record<string, unknown>) => void>();
+    const editResolvers = new Map<string, PendingResolver<{ approved: boolean; reason?: string }>>();
+    const pickResolvers = new Map<string, PendingResolver<Record<string, unknown>>>();
 
     const app = createApp({
         cwd,
@@ -105,8 +106,8 @@ export async function main(
         makeEditFileTool({
             onPropose: (file, oldCode, newCode) => {
                 const reqId = Math.random().toString(36).slice(2);
-                return new Promise((resolve) => {
-                    editResolvers.set(reqId, resolve);
+                return new Promise((resolve, reject) => {
+                    editResolvers.set(reqId, { resolve, reject });
                     hub.broadcast({ type: "diff", reqId, file, oldCode, newCode });
                 });
             },
@@ -121,8 +122,8 @@ export async function main(
                 } catch {
                     // screenshot failure is non-fatal — the picker will still render a placeholder
                 }
-                return new Promise((resolve) => {
-                    pickResolvers.set(reqId, resolve);
+                return new Promise((resolve, reject) => {
+                    pickResolvers.set(reqId, { resolve, reject });
                     hub.broadcast({ type: "pick", reqId, imageUrl, hint });
                 });
             },
@@ -262,14 +263,14 @@ export async function main(
         if (cmd.type === "diff_decision") {
             const resolver = editResolvers.get(cmd.reqId);
             if (resolver) {
-                resolver({ approved: cmd.action === "approved", reason: cmd.reason });
+                resolver.resolve({ approved: cmd.action === "approved", reason: cmd.reason });
                 editResolvers.delete(cmd.reqId);
             }
         }
         if (cmd.type === "pick_result") {
             const resolver = pickResolvers.get(cmd.reqId);
             if (resolver) {
-                resolver(cmd.attrs);
+                resolver.resolve(cmd.attrs);
                 pickResolvers.delete(cmd.reqId);
             }
         }
@@ -287,6 +288,8 @@ export async function main(
                     hub.broadcast({ type: "error", message: `Agent abort: ${e?.message ?? e}` });
                 }
             }
+            drainResolvers(editResolvers);
+            drainResolvers(pickResolvers);
         }
         if (cmd.type === "cancel") {
             if (preRunPid) {
@@ -301,6 +304,8 @@ export async function main(
             await runner.kill();
             orch.stop();
             session.reset();
+            drainResolvers(editResolvers);
+            drainResolvers(pickResolvers);
         }
         if (cmd.type === "settings_update") {
             const patch: Parameters<typeof saveConfig>[1] = {};
