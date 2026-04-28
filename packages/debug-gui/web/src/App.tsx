@@ -10,6 +10,7 @@ import { FailureCard } from "./components/FailureCard";
 import { DiffView } from "./components/DiffView";
 import { PickerOverlay } from "./components/PickerOverlay";
 import { PromptPanel } from "./components/PromptPanel";
+import { ModeToggle, type AgentMode } from "./components/ModeToggle";
 import { ChatDrawer } from "./components/ChatDrawer";
 import { MochaLogPanel } from "./components/MochaLogPanel";
 import { Spinner } from "./components/Spinner";
@@ -35,8 +36,9 @@ export default function App() {
     const diff = useStore((s) => s.pendingDiff);
     const pick = useStore((s) => s.pendingPick);
     const prompt = useStore((s) => s.pendingPrompt);
-    const config = useStore((s) => s.config) as { preRun?: string } & DebugGuiConfigShape;
+    const config = useStore((s) => s.config) as { preRun?: string; agent?: { mode?: AgentMode } } & DebugGuiConfigShape;
     const savedPreRun = config.preRun ?? "";
+    const mode: AgentMode = config.agent?.mode === "manual" ? "manual" : "auto";
     // Skip defaults to unchecked on every reload. Persisting it would let a
     // user accidentally skip builds session after session; the design calls
     // out "always run build" as the safe default.
@@ -120,6 +122,11 @@ export default function App() {
                             Continue
                         </EfButton>
                     )}
+                    <ModeToggle
+                        mode={mode}
+                        disabled={state.state === "running" || state.state === "pre-running" || state.state === "paused"}
+                        onChange={(m) => send({ type: "settings_update", mode: m })}
+                    />
                     <button
                         type="button"
                         aria-label="settings"
