@@ -92,6 +92,7 @@ Dev: `vite` on `:5555` proxies `/api` + `/ws` to backend on `:5556`. Prod: backe
 - **Test fixtures use intentionally wrong selectors** — the point is to exercise the walkthrough debug loop, not to pass
 - **Debug GUI agent config** — `buildSessionConfig` passes `skillDirectories: [".claude/skills"]` so the Copilot CLI agent inherits the existing walkthrough / playwright-cli / identify-element SKILL.md content. Do not re-author skill content in server code.
 - **playwright-cli invocation** — always shell out as `npx playwright-cli ...` (not bare `playwright-cli`). The CLI is bundled with `packages/debug-gui/`, not installed globally on QA machines.
+- **Diff rendering** — agent edit-suggestions render through `@pierre/diffs` (`<FileDiff>` + `parseDiffFromFile`) inside `packages/debug-gui/web/src/components/DiffView.tsx`. The Shiki worker pool is provided once at `web/src/main.tsx`; do not wrap individual diffs in their own provider.
 
 ## Key Rule
 
