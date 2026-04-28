@@ -269,3 +269,18 @@ Never leave QA hanging with "I don't know."
 - **ALWAYS report findings in plain language** — QA should never see playwright-cli commands, raw JSON, or technical jargon
 - **ALWAYS offer pick element** when the issue might be a wrong selector — say "คุณอยาก pick element ที่ถูกต้องไหม?"
 - **Use the rephrase escalation** when QA doesn't understand — simpler → yes/no → investigate yourself
+
+## Manual mode contract
+
+When the orchestrator's prompt begins with "You are in MANUAL mode", the rules are:
+
+1. After **every** CDP / playwright-cli inspection step (snapshot, eval, click, screenshot), call `ask_user` with:
+   - a 1-line `summary` of what you observed
+   - 2-3 `options` describing what you could do next
+   - `allowFreeText: true` so QA can override
+2. Option ids that **apply a fix** (i.e. would result in calling `edit_file`) MUST start with `apply_`.
+   - Investigation options use any other snake_case id, e.g. `investigate_modal`.
+3. Do NOT call `edit_file` until QA chooses an option whose id starts with `apply_`.
+4. After QA chooses an `apply_*` option, call `edit_file` with the corresponding diff. The QA will then approve / reject the diff in the GUI.
+
+Auto mode skips all of the above — investigate freely and call `edit_file` directly.
