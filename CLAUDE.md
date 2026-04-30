@@ -93,6 +93,7 @@ Dev: `vite` on `:5555` proxies `/api` + `/ws` to backend on `:5556`. Prod: backe
 - **Debug GUI agent config** — `buildSessionConfig` passes `skillDirectories: [".claude/skills"]` so the Copilot CLI agent inherits the existing walkthrough / playwright-cli / identify-element SKILL.md content. Do not re-author skill content in server code.
 - **playwright-cli invocation** — always shell out as `npx playwright-cli ...` (not bare `playwright-cli`). The CLI is bundled with `packages/debug-gui/`, not installed globally on QA machines.
 - **Diff rendering** — agent edit-suggestions render through `@pierre/diffs` (`<FileDiff>` + `parseDiffFromFile`) inside `packages/debug-gui/web/src/components/DiffView.tsx`. The Shiki worker pool is provided once at `web/src/main.tsx`; do not wrap individual diffs in their own provider.
+- **LSP for type/symbol work** — the `debug-gui` workspaces are TypeScript-heavy and store/prop/message types are shared across `server/`, `web/`, and the runtime hook. Before changing a prop signature, removing an export, renaming a type, or verifying that a field exists on a store value, prefer the **LSP** tool (find references, hover types, goto definition) over Read + Grep. Falling back to `npm run build -w @debug-gui/web` only catches errors after the fact. Read/Grep are still right for prose, config, and unfamiliar files.
 
 ## Key Rule
 
