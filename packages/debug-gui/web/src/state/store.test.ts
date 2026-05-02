@@ -197,11 +197,11 @@ describe("store", () => {
             expect(s.chatMessages).toEqual([]);
         });
 
-        it("clears run-output when the node changes within the same spec", () => {
-            // Run-output (FailureCard, mocha log, chat) is tied to the prior
-            // (spec, grep) tuple — clicking a sibling `it` produces a
-            // different grep, so showing the old failure under the new
-            // selection is misleading. Treat node-change like spec-change.
+        it("clears spec-scoped run-output when the node changes within the same spec", () => {
+            // Spec-scoped output (FailureCard, mocha log, currentFailure) is
+            // tied to the prior (spec, grep) tuple. Clicking a sibling `it`
+            // produces a different grep, so the old failure under the new
+            // selection would be misleading — drop it.
             useStore.setState({
                 ...stale,
                 selectedSpec: "test/old.spec.js",
@@ -218,9 +218,34 @@ describe("store", () => {
             expect(s.selectedNode).toEqual({ kind: "it", fullTitle: "Login > works" });
             expect(s.mochaLog).toEqual([]);
             expect(s.mochaExitCode).toBeUndefined();
-            expect(s.chatMessages).toEqual([]);
             expect(s.state.currentFailure).toBeUndefined();
-            expect(s.pendingDiff).toBeNull();
+            expect(s.state.currentSpec).toBeUndefined();
+        });
+
+        it("preserves agent-session-scoped state when the node changes within the same spec", () => {
+            // Chat history, agent thinking flag, and pending agent requests
+            // (diff/pick/prompt) belong to the live agent session, not to
+            // any particular grep. Re-greping shouldn't blow away an
+            // unanswered diff modal or a chat the user is mid-conversation
+            // with.
+            useStore.setState({
+                ...stale,
+                selectedSpec: "test/old.spec.js",
+                selectedNode: { kind: "describe", fullTitle: "Login" },
+            });
+
+            useStore.getState().selectSuite(
+                "test/old.spec.js",
+                { kind: "it", fullTitle: "Login > works" },
+            );
+
+            const s = useStore.getState();
+            expect(s.chatMessages).toEqual(stale.chatMessages);
+            expect(s.agentThinking).toBe(true);
+            expect(s.agentActivity).toBe("thinking about old spec");
+            expect(s.pendingDiff).toEqual(stale.pendingDiff);
+            expect(s.pendingPick).toEqual(stale.pendingPick);
+            expect(s.pendingPrompt).toEqual(stale.pendingPrompt);
         });
 
         it("is a no-op when the same spec and node are re-selected", () => {

@@ -93,20 +93,33 @@ interface Store {
     agentThinking: boolean;
     agentActivity: string;
     applyEvent: (e: ServerEvent) => void;
-    // Switch the active spec/node selection. When the spec actually changes,
-    // run-output that belongs to the previous spec (mocha log, failure card,
-    // chat history, agent prompts) is dropped so the UI never shows stale
-    // data from a different file. When only the node changes within the
-    // same spec, the run-output is preserved.
+    // Switch the active spec/node selection. Clearing semantics depend on
+    // what changed:
     //
-    // Note on pending agent requests (pendingPick/Diff/Prompt): wiping these
-    // client-side is safe because the suite-switch flow always sends
-    // {type:"cancel"} to the server first. The server's cancel handler in
-    // server/src/index.ts calls currentAgentSession.abort() and
-    // drainResolvers() over the edit/pick/ask resolver maps, which rejects
-    // each in-flight promise with "session aborted". So by the time we
-    // clear the client-side pending state, no agent code is still waiting
-    // for a response — no orphaned pick/diff/prompt requests can leak.
+    //   * Spec actually changes → drop everything tied to the previous
+    //     spec: mochaLog, mochaExitCode, currentFailure, currentSpec,
+    //     chatMessages, agentThinking, agentActivity, pendingDiff,
+    //     pendingPick, pendingPrompt. Nothing about the old run is
+    //     relevant under the new file.
+    //
+    //   * Same spec, node changes → drop only spec-scoped run-output
+    //     (mochaLog, mochaExitCode, currentFailure, currentSpec). Agent
+    //     -session-scoped state (chatMessages, agentThinking/Activity,
+    //     pendingDiff/Pick/Prompt) is preserved so a re-grep
+    //     mid-conversation doesn't blow away the chat history or kill
+    //     an unanswered diff modal.
+    //
+    //   * Same spec, same node → no-op.
+    //
+    // Note on pending agent requests (pendingPick/Diff/Prompt) when the
+    // spec changes: wiping these client-side is safe because the
+    // suite-switch flow always sends {type:"cancel"} to the server
+    // first. The server's cancel handler in server/src/index.ts calls
+    // currentAgentSession.abort() and drainResolvers() over the
+    // edit/pick/ask resolver maps, which rejects each in-flight promise
+    // with "session aborted". So by the time we clear the client-side
+    // pending state, no agent code is still waiting for a response —
+    // no orphaned pick/diff/prompt requests can leak.
     selectSuite: (spec: string | null, node: SelectedNode | null) => void;
 }
 
@@ -231,10 +244,24 @@ export const useStore = create<Store>((set) => ({
                 // don't gratuitously wipe state.
                 return {};
             }
-            // Selection actually changed (different spec OR different node
-            // within the same spec). Run-output is tied to the prior
-            // (spec, grep) tuple, so showing it under a different selection
-            // is misleading — drop it.
+            if (sameSpec) {
+                // Only the node changed within the same spec. Spec-scoped
+                // run-output (mocha log/exit code, currentFailure,
+                // currentSpec) is tied to the prior grep and would be
+                // misleading under the new node — drop it. Agent-session
+                // -scoped state (chatMessages, agentThinking/Activity,
+                // pendingDiff/Pick/Prompt) belongs to the running agent
+                // and is preserved so a re-grep mid-conversation doesn't
+                // blow away the chat or kill an unanswered diff modal.
+                return {
+                    selectedNode: node,
+                    mochaLog: [],
+                    mochaExitCode: undefined,
+                    state: { state: s.state.state },
+                };
+            }
+            // Spec actually changed. Everything that belonged to the
+            // previous spec is now stale; clear it all.
             return {
                 selectedSpec: spec,
                 selectedNode: node,
