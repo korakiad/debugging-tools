@@ -213,14 +213,19 @@ export const useStore = create<Store>((set) => ({
         }),
     selectSuite: (spec, node) =>
         set((s) => {
-            if (spec === s.selectedSpec) {
-                // Same spec — only the in-spec selection changed. Run-output
-                // (mocha log, failure card, chat) still belongs to this spec
-                // and must be preserved.
-                return { selectedNode: node };
+            const sameSpec = spec === s.selectedSpec;
+            const sameNode =
+                node?.kind === s.selectedNode?.kind &&
+                node?.fullTitle === s.selectedNode?.fullTitle;
+            if (sameSpec && sameNode) {
+                // Idempotent click on the already-active row — no-op so we
+                // don't gratuitously wipe state.
+                return {};
             }
-            // Cross-spec switch (or clearing selection). Drop everything tied
-            // to the previous spec's run so the next render is clean.
+            // Selection actually changed (different spec OR different node
+            // within the same spec). Run-output is tied to the prior
+            // (spec, grep) tuple, so showing it under a different selection
+            // is misleading — drop it.
             return {
                 selectedSpec: spec,
                 selectedNode: node,

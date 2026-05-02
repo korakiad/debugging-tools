@@ -197,7 +197,11 @@ describe("store", () => {
             expect(s.chatMessages).toEqual([]);
         });
 
-        it("preserves run-output when only the node changes within the same spec", () => {
+        it("clears run-output when the node changes within the same spec", () => {
+            // Run-output (FailureCard, mocha log, chat) is tied to the prior
+            // (spec, grep) tuple — clicking a sibling `it` produces a
+            // different grep, so showing the old failure under the new
+            // selection is misleading. Treat node-change like spec-change.
             useStore.setState({
                 ...stale,
                 selectedSpec: "test/old.spec.js",
@@ -212,11 +216,29 @@ describe("store", () => {
             const s = useStore.getState();
             expect(s.selectedSpec).toBe("test/old.spec.js");
             expect(s.selectedNode).toEqual({ kind: "it", fullTitle: "Login > works" });
+            expect(s.mochaLog).toEqual([]);
+            expect(s.mochaExitCode).toBeUndefined();
+            expect(s.chatMessages).toEqual([]);
+            expect(s.state.currentFailure).toBeUndefined();
+            expect(s.pendingDiff).toBeNull();
+        });
+
+        it("is a no-op when the same spec and node are re-selected", () => {
+            useStore.setState({
+                ...stale,
+                selectedSpec: "test/old.spec.js",
+                selectedNode: { kind: "it", fullTitle: "Login > works" },
+            });
+
+            useStore.getState().selectSuite(
+                "test/old.spec.js",
+                { kind: "it", fullTitle: "Login > works" },
+            );
+
+            const s = useStore.getState();
             expect(s.mochaLog).toHaveLength(1);
-            expect(s.mochaExitCode).toBe(1);
-            expect(s.chatMessages).toHaveLength(1);
             expect(s.state.currentFailure?.test).toBe("t");
-            expect(s.pendingDiff?.reqId).toBe("d1");
+            expect(s.chatMessages).toHaveLength(1);
         });
 
         it("clears when switching to null spec (no selection)", () => {
