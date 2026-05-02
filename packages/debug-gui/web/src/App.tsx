@@ -225,8 +225,14 @@ export default function App() {
                         onCancel={() => { if (!switching) setPendingSelection(null); }}
                     >
                         {!switching ? (
-                            <div className="space-y-2 p-4">
-                                <p>A run is in progress. Switching will stop it. Continue?</p>
+                            <div className="space-y-3 p-4 pb-6">
+                                <div
+                                    className="flex items-start gap-2 text-sm font-medium"
+                                    style={{ color: "#ffc800" }}
+                                >
+                                    <span aria-hidden>⚠</span>
+                                    <span>The active test run will be stopped if you switch.</span>
+                                </div>
                                 <div className="text-xs opacity-70 font-mono">
                                     Current: {selectedSpec}{selectedNode ? ` — ${selectedNode.fullTitle}` : ""}
                                 </div>
@@ -242,9 +248,10 @@ export default function App() {
                             </div>
                         )}
                         {/* slot="footer" replaces the dialog's default OK/Cancel buttons. */}
-                        <div slot="footer" className="flex gap-2">
+                        <div slot="footer" className="flex justify-end gap-2 px-4 pb-3">
                             {!switching && (
                                 <>
+                                    <EfButton onClick={() => setPendingSelection(null)}>Keep running</EfButton>
                                     <EfButton
                                         cta
                                         onClick={() => {
@@ -253,7 +260,6 @@ export default function App() {
                                             send({ type: "cancel" });
                                         }}
                                     >Switch</EfButton>
-                                    <EfButton onClick={() => setPendingSelection(null)}>Keep running</EfButton>
                                 </>
                             )}
                         </div>
