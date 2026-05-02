@@ -2,8 +2,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 
 // Stub the websocket hook so App doesn't try to open a real connection.
+// Use vi.hoisted so sendSpy is available to the hoisted vi.mock factory.
+const { sendSpy } = vi.hoisted(() => ({ sendSpy: vi.fn() }));
 vi.mock("./hooks/useWebSocket", () => ({
-    useWebSocket: () => ({ send: vi.fn() }),
+    useWebSocket: () => ({ send: sendSpy }),
 }));
 
 import App from "./App";
@@ -25,6 +27,7 @@ describe("App empty-state integration", () => {
 
 describe("App suite-switch confirmation", () => {
     beforeEach(() => {
+        sendSpy.mockReset();
         // Reset store to a known idle state with two discoverable suites.
         useStore.setState({
             suites: [
@@ -70,5 +73,17 @@ describe("App suite-switch confirmation", () => {
         fireEvent.click(screen.getByRole("button", { name: "test/a.spec.js" }));
 
         expect(screen.queryByRole("dialog", { name: /switch suite/i })).not.toBeInTheDocument();
+    });
+
+    it("running: clicking 'Keep running' closes dialog, does NOT send cancel, leaves selection", () => {
+        useStore.setState({ state: { state: "running" } });
+        render(<App />);
+
+        fireEvent.click(screen.getByText("test/b.spec.js"));
+        fireEvent.click(screen.getByRole("button", { name: /keep running/i }));
+
+        expect(screen.queryByRole("dialog", { name: /switch suite/i })).not.toBeInTheDocument();
+        expect(useStore.getState().selectedSpec).toBe("test/a.spec.js");
+        expect(sendSpy).not.toHaveBeenCalledWith(expect.objectContaining({ type: "cancel" }));
     });
 });
