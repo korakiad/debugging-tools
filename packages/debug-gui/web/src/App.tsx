@@ -78,9 +78,7 @@ export default function App() {
             <TestTree
                 suites={suites}
                 selection={selection}
-                onSelect={(sel) =>
-                    useStore.setState({ selectedSpec: sel.spec, selectedNode: sel.node })
-                }
+                onSelect={(sel) => useStore.getState().selectSuite(sel.spec, sel.node)}
                 onOpenSettings={() => setSettingsOpen(true)}
                 settingsDisabled={settingsDisabled}
             />

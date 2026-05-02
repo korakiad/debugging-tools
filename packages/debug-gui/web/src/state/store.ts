@@ -93,6 +93,12 @@ interface Store {
     agentThinking: boolean;
     agentActivity: string;
     applyEvent: (e: ServerEvent) => void;
+    // Switch the active spec/node selection. When the spec actually changes,
+    // run-output that belongs to the previous spec (mocha log, failure card,
+    // chat history, agent prompts) is dropped so the UI never shows stale
+    // data from a different file. When only the node changes within the
+    // same spec, the run-output is preserved.
+    selectSuite: (spec: string | null, node: SelectedNode | null) => void;
 }
 
 export const useStore = create<Store>((set) => ({
@@ -204,5 +210,29 @@ export const useStore = create<Store>((set) => ({
                 };
             }
             return {};
+        }),
+    selectSuite: (spec, node) =>
+        set((s) => {
+            if (spec === s.selectedSpec) {
+                // Same spec — only the in-spec selection changed. Run-output
+                // (mocha log, failure card, chat) still belongs to this spec
+                // and must be preserved.
+                return { selectedNode: node };
+            }
+            // Cross-spec switch (or clearing selection). Drop everything tied
+            // to the previous spec's run so the next render is clean.
+            return {
+                selectedSpec: spec,
+                selectedNode: node,
+                mochaLog: [],
+                mochaExitCode: undefined,
+                chatMessages: [],
+                agentThinking: false,
+                agentActivity: "",
+                pendingDiff: null,
+                pendingPick: null,
+                pendingPrompt: null,
+                state: { state: s.state.state },
+            };
         }),
 }));
