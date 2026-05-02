@@ -98,6 +98,15 @@ interface Store {
     // chat history, agent prompts) is dropped so the UI never shows stale
     // data from a different file. When only the node changes within the
     // same spec, the run-output is preserved.
+    //
+    // Note on pending agent requests (pendingPick/Diff/Prompt): wiping these
+    // client-side is safe because the suite-switch flow always sends
+    // {type:"cancel"} to the server first. The server's cancel handler in
+    // server/src/index.ts calls currentAgentSession.abort() and
+    // drainResolvers() over the edit/pick/ask resolver maps, which rejects
+    // each in-flight promise with "session aborted". So by the time we
+    // clear the client-side pending state, no agent code is still waiting
+    // for a response — no orphaned pick/diff/prompt requests can leak.
     selectSuite: (spec: string | null, node: SelectedNode | null) => void;
 }
 
