@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { useStore } from "./state/store";
 import { TestTree, type TestSelection } from "./components/TestTree";
@@ -46,7 +46,6 @@ export default function App() {
     const [preRunDirty, setPreRunDirty] = useState(false);
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [pendingSelection, setPendingSelection] = useState<TestSelection | null>(null);
-    const [switching, setSwitching] = useState(false);
     const isLive = state.state === "running" || state.state === "pre-running" || state.state === "paused";
     const settingsDisabled = state.state === "running" || state.state === "pre-running" || state.state === "paused";
 
@@ -200,25 +199,23 @@ export default function App() {
                         opened
                         aria-label="Switch suite?"
                         role="dialog"
-                        onCancel={() => { if (!switching) setPendingSelection(null); }}
+                        onCancel={() => setPendingSelection(null)}
                     >
                         <div slot="header">Switch suite?</div>
-                        {!switching && (
-                            <div className="space-y-2 p-4">
-                                <p>A run is in progress. Switching will stop it. Continue?</p>
-                                <div className="text-xs opacity-70 font-mono">
-                                    Current: {selectedSpec}{selectedNode ? ` — ${selectedNode.fullTitle}` : ""}
-                                </div>
-                                <div className="text-xs opacity-70 font-mono">
-                                    New: {pendingSelection?.spec ?? "(clear selection)"}
-                                    {pendingSelection?.node ? ` — ${pendingSelection.node.fullTitle}` : pendingSelection ? " — whole file" : ""}
-                                </div>
-                                <div className="flex gap-2 pt-2">
-                                    <EfButton cta onClick={() => {}}>Switch</EfButton>
-                                    <EfButton onClick={() => setPendingSelection(null)}>Keep running</EfButton>
-                                </div>
+                        <div className="space-y-2 p-4">
+                            <p>A run is in progress. Switching will stop it. Continue?</p>
+                            <div className="text-xs opacity-70 font-mono">
+                                Current: {selectedSpec}{selectedNode ? ` — ${selectedNode.fullTitle}` : ""}
                             </div>
-                        )}
+                            <div className="text-xs opacity-70 font-mono">
+                                New: {pendingSelection?.spec ?? "(clear selection)"}
+                                {pendingSelection?.node ? ` — ${pendingSelection.node.fullTitle}` : pendingSelection ? " — whole file" : ""}
+                            </div>
+                            <div className="flex gap-2 pt-2">
+                                <EfButton cta onClick={() => {}}>Switch</EfButton>
+                                <EfButton onClick={() => setPendingSelection(null)}>Keep running</EfButton>
+                            </div>
+                        </div>
                     </EfDialog>
                 )}
             </main>
