@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 
 // Stub the websocket hook so App doesn't try to open a real connection.
 // Use vi.hoisted so sendSpy is available to the hoisted vi.mock factory.
@@ -103,5 +103,21 @@ describe("App suite-switch confirmation", () => {
         expect(screen.queryByRole("button", { name: /keep running/i })).not.toBeInTheDocument();
         // Selection unchanged.
         expect(useStore.getState().selectedSpec).toBe("test/a.spec.js");
+    });
+
+    it("after Switch: when status flips to idle, pendingSelection is applied and dialog closes", () => {
+        useStore.setState({ state: { state: "running" } });
+        render(<App />);
+
+        fireEvent.click(screen.getByText("test/b.spec.js"));
+        fireEvent.click(screen.getByRole("button", { name: /^switch$/i }));
+
+        // Simulate the server broadcasting status:idle (cancel landed).
+        act(() => {
+            useStore.getState().applyEvent({ type: "status", state: "idle" });
+        });
+
+        expect(useStore.getState().selectedSpec).toBe("test/b.spec.js");
+        expect(screen.queryByRole("dialog", { name: /switch suite/i })).not.toBeInTheDocument();
     });
 });

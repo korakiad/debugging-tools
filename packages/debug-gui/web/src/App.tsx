@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { useStore } from "./state/store";
 import { TestTree, type TestSelection } from "./components/TestTree";
@@ -67,6 +67,19 @@ export default function App() {
         }
         setPendingSelection(next);
     }
+
+    useEffect(() => {
+        if (!switching) return;
+        if (state.state !== "idle" && state.state !== "done") return;
+        if (pendingSelection !== null) {
+            useStore.setState({
+                selectedSpec: pendingSelection.spec,
+                selectedNode: pendingSelection.node,
+            });
+        }
+        setPendingSelection(null);
+        setSwitching(false);
+    }, [switching, state.state, pendingSelection]);
 
     // Show the row whenever preRun is configured. First-run setup (no value)
     // is not exposed here; dev commits initial value OR user triggers the
