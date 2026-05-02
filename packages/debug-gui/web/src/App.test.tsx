@@ -49,4 +49,16 @@ describe("App suite-switch confirmation", () => {
         expect(useStore.getState().selectedSpec).toBe("test/b.spec.js");
         expect(screen.queryByRole("dialog", { name: /switch suite/i })).not.toBeInTheDocument();
     });
+
+    it("running: clicking another suite opens confirm dialog and does NOT change selection", () => {
+        useStore.setState({ state: { state: "running" } });
+        render(<App />);
+
+        fireEvent.click(screen.getByText("test/b.spec.js"));
+
+        // Dialog mounted.
+        expect(screen.getByRole("dialog", { name: /switch suite/i })).toBeInTheDocument();
+        // Selection not changed yet.
+        expect(useStore.getState().selectedSpec).toBe("test/a.spec.js");
+    });
 });

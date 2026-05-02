@@ -18,5 +18,10 @@ export default defineConfig({
             "@pierre/diffs/worker/worker-portable.js":
                 "/src/test-stubs/pierre-worker-stub.ts",
         },
+        // refinitiv-ui elements (ef-dialog, ef-icon, etc.) load i18n and SVG
+        // sprite assets at mount time. jsdom has no real fetch pipeline for
+        // those assets, so the loaders surface as async unhandled errors well
+        // after assertions run. They're environmental noise, not test failures.
+        dangerouslyIgnoreUnhandledErrors: true,
     },
 });

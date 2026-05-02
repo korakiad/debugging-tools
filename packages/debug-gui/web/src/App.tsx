@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { useStore } from "./state/store";
 import { TestTree, type TestSelection } from "./components/TestTree";
+import { EfDialog } from "./ui/EfDialog";
 import { SelectionPanel } from "./components/SelectionPanel";
 import { CodePreview, languageFromPath, sliceSource } from "./components/CodePreview";
 import { mochaGrepFor } from "./lib/mochaGrep";
@@ -44,7 +45,28 @@ export default function App() {
     const [skipPreRun, setSkipPreRun] = useState(false);
     const [preRunDirty, setPreRunDirty] = useState(false);
     const [settingsOpen, setSettingsOpen] = useState(false);
+    const [pendingSelection, setPendingSelection] = useState<TestSelection | null>(null);
+    const [switching, setSwitching] = useState(false);
+    const isLive = state.state === "running" || state.state === "pre-running" || state.state === "paused";
     const settingsDisabled = state.state === "running" || state.state === "pre-running" || state.state === "paused";
+
+    const sameNode = (a: TestSelection["node"], b: TestSelection["node"]) =>
+        (!a && !b) ||
+        !!(a && b && a.kind === b.kind && a.fullTitle === b.fullTitle);
+
+    function requestSelectionChange(next: TestSelection | null) {
+        const sameAsCurrent =
+            (next?.spec ?? null) === selectedSpec && sameNode(next?.node ?? null, selectedNode);
+        if (sameAsCurrent) return;
+        if (!isLive) {
+            useStore.setState({
+                selectedSpec: next?.spec ?? null,
+                selectedNode: next?.node ?? null,
+            });
+            return;
+        }
+        setPendingSelection(next);
+    }
 
     // Show the row whenever preRun is configured. First-run setup (no value)
     // is not exposed here; dev commits initial value OR user triggers the
@@ -77,9 +99,7 @@ export default function App() {
             <TestTree
                 suites={suites}
                 selection={selection}
-                onSelect={(sel) =>
-                    useStore.setState({ selectedSpec: sel.spec, selectedNode: sel.node })
-                }
+                onSelect={(sel) => requestSelectionChange(sel)}
                 onOpenSettings={() => setSettingsOpen(true)}
                 settingsDisabled={settingsDisabled}
             />
@@ -174,6 +194,32 @@ export default function App() {
                             useStore.setState({ pendingDiff: null });
                         }}
                     />
+                )}
+                {pendingSelection !== null && (
+                    <EfDialog
+                        opened
+                        aria-label="Switch suite?"
+                        role="dialog"
+                        onCancel={() => { if (!switching) setPendingSelection(null); }}
+                    >
+                        <div slot="header">Switch suite?</div>
+                        {!switching && (
+                            <div className="space-y-2 p-4">
+                                <p>A run is in progress. Switching will stop it. Continue?</p>
+                                <div className="text-xs opacity-70 font-mono">
+                                    Current: {selectedSpec}{selectedNode ? ` — ${selectedNode.fullTitle}` : ""}
+                                </div>
+                                <div className="text-xs opacity-70 font-mono">
+                                    New: {pendingSelection?.spec ?? "(clear selection)"}
+                                    {pendingSelection?.node ? ` — ${pendingSelection.node.fullTitle}` : pendingSelection ? " — whole file" : ""}
+                                </div>
+                                <div className="flex gap-2 pt-2">
+                                    <EfButton cta onClick={() => {}}>Switch</EfButton>
+                                    <EfButton onClick={() => setPendingSelection(null)}>Keep running</EfButton>
+                                </div>
+                            </div>
+                        )}
+                    </EfDialog>
                 )}
             </main>
             <ChatDrawer
