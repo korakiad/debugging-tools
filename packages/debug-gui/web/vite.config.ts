@@ -13,15 +13,18 @@ export default defineConfig({
     test: {
         globals: true,
         environment: "jsdom",
-        setupFiles: ["./src/test-setup.ts"],
+        // The unhandled-rejection-filter setupFile narrowly silences the
+        // refinitiv-ui i18n / SVG sprite loader noise that surfaces async
+        // after a test mounts an ef-* element. Any other unhandled
+        // rejection still throws and fails the run, so genuine product
+        // bugs in async paths cannot hide.
+        setupFiles: [
+            "./src/test-setup.ts",
+            "./src/test-stubs/unhandled-rejection-filter.ts",
+        ],
         alias: {
             "@pierre/diffs/worker/worker-portable.js":
                 "/src/test-stubs/pierre-worker-stub.ts",
         },
-        // refinitiv-ui elements (ef-dialog, ef-icon, etc.) load i18n and SVG
-        // sprite assets at mount time. jsdom has no real fetch pipeline for
-        // those assets, so the loaders surface as async unhandled errors well
-        // after assertions run. They're environmental noise, not test failures.
-        dangerouslyIgnoreUnhandledErrors: true,
     },
 });
