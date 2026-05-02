@@ -105,6 +105,16 @@ describe("App suite-switch confirmation", () => {
         expect(useStore.getState().selectedSpec).toBe("test/a.spec.js");
     });
 
+    it("paused: clicking another suite opens confirm dialog", () => {
+        useStore.setState({ state: { state: "paused" } });
+        render(<App />);
+
+        fireEvent.click(screen.getByText("test/b.spec.js"));
+
+        expect(screen.getByRole("dialog", { name: /switch suite/i })).toBeInTheDocument();
+        expect(useStore.getState().selectedSpec).toBe("test/a.spec.js");
+    });
+
     it("after Switch: when status flips to idle, pendingSelection is applied and dialog closes", () => {
         useStore.setState({ state: { state: "running" } });
         render(<App />);
