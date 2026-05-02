@@ -60,10 +60,7 @@ export default function App() {
             (next?.spec ?? null) === selectedSpec && sameNode(next?.node ?? null, selectedNode);
         if (sameAsCurrent) return;
         if (!isLive) {
-            useStore.setState({
-                selectedSpec: next?.spec ?? null,
-                selectedNode: next?.node ?? null,
-            });
+            useStore.getState().selectSuite(next?.spec ?? null, next?.node ?? null);
             return;
         }
         setPendingSelection(next);
@@ -73,10 +70,9 @@ export default function App() {
         if (!switching) return;
         if (state.state !== "idle" && state.state !== "done") return;
         if (pendingSelection !== null) {
-            useStore.setState({
-                selectedSpec: pendingSelection.spec,
-                selectedNode: pendingSelection.node,
-            });
+            useStore.getState().selectSuite(pendingSelection.spec, pendingSelection.node);
+        } else {
+            useStore.getState().selectSuite(null, null);
         }
         setPendingSelection(null);
         setSwitching(false);

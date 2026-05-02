@@ -137,4 +137,124 @@ describe("store", () => {
         useStore.setState({ pendingPrompt: null });
         expect(useStore.getState().pendingPrompt).toBeNull();
     });
+
+    describe("selectSuite", () => {
+        const stale = {
+            mochaLog: [{ stream: "stdout" as const, text: "old log\n" }],
+            mochaExitCode: 1,
+            chatMessages: [{ role: "assistant" as const, content: "old chat" }],
+            agentThinking: true,
+            agentActivity: "thinking about old spec",
+            pendingDiff: { reqId: "d1", file: "old.js", oldCode: "a", newCode: "b" },
+            pendingPick: { reqId: "p1", imageUrl: "img", hint: "hint" },
+            pendingPrompt: { reqId: "q1", summary: "s", options: [], allowFreeText: false },
+            state: {
+                state: "done" as const,
+                currentSpec: "test/old.spec.js",
+                currentFailure: { test: "t", file: "test/old.spec.js", error: "e", stack: "" },
+            },
+        };
+
+        it("clears stale run-output when switching to a different spec", () => {
+            useStore.setState({
+                ...stale,
+                selectedSpec: "test/old.spec.js",
+                selectedNode: { kind: "it", fullTitle: "old > t" },
+            });
+
+            useStore.getState().selectSuite("test/new.spec.js", null);
+
+            const s = useStore.getState();
+            expect(s.selectedSpec).toBe("test/new.spec.js");
+            expect(s.selectedNode).toBeNull();
+            expect(s.mochaLog).toEqual([]);
+            expect(s.mochaExitCode).toBeUndefined();
+            expect(s.chatMessages).toEqual([]);
+            expect(s.agentThinking).toBe(false);
+            expect(s.agentActivity).toBe("");
+            expect(s.pendingDiff).toBeNull();
+            expect(s.pendingPick).toBeNull();
+            expect(s.pendingPrompt).toBeNull();
+            expect(s.state.currentFailure).toBeUndefined();
+            expect(s.state.currentSpec).toBeUndefined();
+            // Session-state field itself is preserved (idle/done/etc).
+            expect(s.state.state).toBe("done");
+        });
+
+        it("clears stale state when switching from no-selection to a spec", () => {
+            useStore.setState({
+                ...stale,
+                selectedSpec: null,
+                selectedNode: null,
+            });
+
+            useStore.getState().selectSuite("test/new.spec.js", null);
+
+            const s = useStore.getState();
+            expect(s.selectedSpec).toBe("test/new.spec.js");
+            expect(s.mochaLog).toEqual([]);
+            expect(s.state.currentFailure).toBeUndefined();
+            expect(s.chatMessages).toEqual([]);
+        });
+
+        it("clears run-output when the node changes within the same spec", () => {
+            // Run-output (FailureCard, mocha log, chat) is tied to the prior
+            // (spec, grep) tuple — clicking a sibling `it` produces a
+            // different grep, so showing the old failure under the new
+            // selection is misleading. Treat node-change like spec-change.
+            useStore.setState({
+                ...stale,
+                selectedSpec: "test/old.spec.js",
+                selectedNode: { kind: "describe", fullTitle: "Login" },
+            });
+
+            useStore.getState().selectSuite(
+                "test/old.spec.js",
+                { kind: "it", fullTitle: "Login > works" },
+            );
+
+            const s = useStore.getState();
+            expect(s.selectedSpec).toBe("test/old.spec.js");
+            expect(s.selectedNode).toEqual({ kind: "it", fullTitle: "Login > works" });
+            expect(s.mochaLog).toEqual([]);
+            expect(s.mochaExitCode).toBeUndefined();
+            expect(s.chatMessages).toEqual([]);
+            expect(s.state.currentFailure).toBeUndefined();
+            expect(s.pendingDiff).toBeNull();
+        });
+
+        it("is a no-op when the same spec and node are re-selected", () => {
+            useStore.setState({
+                ...stale,
+                selectedSpec: "test/old.spec.js",
+                selectedNode: { kind: "it", fullTitle: "Login > works" },
+            });
+
+            useStore.getState().selectSuite(
+                "test/old.spec.js",
+                { kind: "it", fullTitle: "Login > works" },
+            );
+
+            const s = useStore.getState();
+            expect(s.mochaLog).toHaveLength(1);
+            expect(s.state.currentFailure?.test).toBe("t");
+            expect(s.chatMessages).toHaveLength(1);
+        });
+
+        it("clears when switching to null spec (no selection)", () => {
+            useStore.setState({
+                ...stale,
+                selectedSpec: "test/old.spec.js",
+                selectedNode: { kind: "it", fullTitle: "old > t" },
+            });
+
+            useStore.getState().selectSuite(null, null);
+
+            const s = useStore.getState();
+            expect(s.selectedSpec).toBeNull();
+            expect(s.selectedNode).toBeNull();
+            expect(s.mochaLog).toEqual([]);
+            expect(s.state.currentFailure).toBeUndefined();
+        });
+    });
 });

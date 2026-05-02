@@ -93,6 +93,12 @@ interface Store {
     agentThinking: boolean;
     agentActivity: string;
     applyEvent: (e: ServerEvent) => void;
+    // Switch the active spec/node selection. When the spec actually changes,
+    // run-output that belongs to the previous spec (mocha log, failure card,
+    // chat history, agent prompts) is dropped so the UI never shows stale
+    // data from a different file. When only the node changes within the
+    // same spec, the run-output is preserved.
+    selectSuite: (spec: string | null, node: SelectedNode | null) => void;
 }
 
 export const useStore = create<Store>((set) => ({
@@ -204,5 +210,34 @@ export const useStore = create<Store>((set) => ({
                 };
             }
             return {};
+        }),
+    selectSuite: (spec, node) =>
+        set((s) => {
+            const sameSpec = spec === s.selectedSpec;
+            const sameNode =
+                node?.kind === s.selectedNode?.kind &&
+                node?.fullTitle === s.selectedNode?.fullTitle;
+            if (sameSpec && sameNode) {
+                // Idempotent click on the already-active row — no-op so we
+                // don't gratuitously wipe state.
+                return {};
+            }
+            // Selection actually changed (different spec OR different node
+            // within the same spec). Run-output is tied to the prior
+            // (spec, grep) tuple, so showing it under a different selection
+            // is misleading — drop it.
+            return {
+                selectedSpec: spec,
+                selectedNode: node,
+                mochaLog: [],
+                mochaExitCode: undefined,
+                chatMessages: [],
+                agentThinking: false,
+                agentActivity: "",
+                pendingDiff: null,
+                pendingPick: null,
+                pendingPrompt: null,
+                state: { state: s.state.state },
+            };
         }),
 }));
