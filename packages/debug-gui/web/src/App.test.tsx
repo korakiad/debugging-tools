@@ -61,4 +61,14 @@ describe("App suite-switch confirmation", () => {
         // Selection not changed yet.
         expect(useStore.getState().selectedSpec).toBe("test/a.spec.js");
     });
+
+    it("running: clicking the current selection is a no-op (no dialog)", () => {
+        useStore.setState({ state: { state: "running" } });
+        render(<App />);
+
+        // Role-based query disambiguates the sidebar button from the selection echo in the main pane.
+        fireEvent.click(screen.getByRole("button", { name: "test/a.spec.js" }));
+
+        expect(screen.queryByRole("dialog", { name: /switch suite/i })).not.toBeInTheDocument();
+    });
 });
