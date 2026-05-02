@@ -197,11 +197,11 @@ export default function App() {
                 {pendingSelection !== null && (
                     <EfDialog
                         opened
+                        header="Switch suite?"
                         aria-label="Switch suite?"
                         role="dialog"
                         onCancel={() => setPendingSelection(null)}
                     >
-                        <div slot="header">Switch suite?</div>
                         <div className="space-y-2 p-4">
                             <p>A run is in progress. Switching will stop it. Continue?</p>
                             <div className="text-xs opacity-70 font-mono">
@@ -212,7 +212,7 @@ export default function App() {
                                 {pendingSelection?.node ? ` — ${pendingSelection.node.fullTitle}` : pendingSelection ? " — whole file" : ""}
                             </div>
                             <div className="flex gap-2 pt-2">
-                                <EfButton cta onClick={() => {}}>Switch</EfButton>
+                                <EfButton cta disabled onClick={() => {}}>Switch</EfButton>
                                 <EfButton onClick={() => setPendingSelection(null)}>Keep running</EfButton>
                             </div>
                         </div>
