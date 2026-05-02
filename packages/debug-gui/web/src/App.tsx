@@ -74,6 +74,11 @@ export default function App() {
         } else {
             useStore.getState().selectSuite(null, null);
         }
+        // The cancel just landed. Force a clean idle snapshot so leftover
+        // `paused` state, currentFailure, and the Continue button can't
+        // linger if selectSuite read s.state.state before the WS status
+        // event was applied to the store.
+        useStore.setState({ state: { state: "idle" } });
         setPendingSelection(null);
         setSwitching(false);
     }, [switching, state.state, pendingSelection]);

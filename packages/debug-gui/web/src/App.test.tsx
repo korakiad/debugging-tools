@@ -145,6 +145,40 @@ describe("App suite-switch confirmation", () => {
         expect(screen.queryByRole("dialog", { name: /switch suite/i })).not.toBeInTheDocument();
     });
 
+    it("paused → Switch → idle: snapshot is forced to clean idle (no lingering Continue / FailureCard)", () => {
+        useStore.setState({
+            state: {
+                state: "paused",
+                currentFailure: { test: "x", file: "y", error: "boom", stack: "" },
+            },
+            mochaLog: [{ stream: "stdout", text: "old line" }],
+        });
+        render(<App />);
+
+        // Sanity: paused-state UI is showing.
+        expect(screen.getByText("Status: paused")).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /^continue$/i })).toBeInTheDocument();
+
+        fireEvent.click(screen.getByText("test/b.spec.js"));
+        fireEvent.click(screen.getByRole("button", { name: /^switch$/i }));
+
+        // The cancel landed: server broadcasts status:idle (the gate
+        // condition for the apply useEffect).
+        act(() => {
+            useStore.getState().applyEvent({ type: "status", state: "idle" });
+        });
+
+        // Selection swapped.
+        expect(useStore.getState().selectedSpec).toBe("test/b.spec.js");
+        // Snapshot is fully reset — no leftover paused state.
+        expect(useStore.getState().state).toEqual({ state: "idle" });
+        // Stale run-output dropped.
+        expect(useStore.getState().mochaLog).toEqual([]);
+        // UI no longer shows the paused-state controls.
+        expect(screen.queryByRole("button", { name: /^continue$/i })).not.toBeInTheDocument();
+        expect(screen.queryByText("Status: paused")).not.toBeInTheDocument();
+    });
+
     it("during switching: clicking Stop is a no-op (canStop guarded)", () => {
         useStore.setState({ state: { state: "running" } });
         render(<App />);
