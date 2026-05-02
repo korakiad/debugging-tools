@@ -248,7 +248,7 @@ export default function App() {
                             </div>
                         )}
                         {/* slot="footer" replaces the dialog's default OK/Cancel buttons. */}
-                        <div slot="footer" className="flex justify-end gap-2 px-4 pb-3">
+                        <div slot="footer" className="flex justify-end items-center gap-4 px-5 py-4">
                             {!switching && (
                                 <>
                                     <EfButton onClick={() => setPendingSelection(null)}>Keep running</EfButton>
