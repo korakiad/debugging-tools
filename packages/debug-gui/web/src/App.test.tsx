@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 
 // Stub the websocket hook so App doesn't try to open a real connection.
@@ -7,6 +7,7 @@ vi.mock("./hooks/useWebSocket", () => ({
 }));
 
 import App from "./App";
+import { useStore } from "./state/store";
 
 describe("App empty-state integration", () => {
     it("opens the SettingsDialog when the TestTree empty-state Open Settings button is clicked", () => {
@@ -19,5 +20,33 @@ describe("App empty-state integration", () => {
 
         // Post-click: the modal dialog is mounted.
         expect(screen.getByRole("dialog", { name: /settings/i })).toBeInTheDocument();
+    });
+});
+
+describe("App suite-switch confirmation", () => {
+    beforeEach(() => {
+        // Reset store to a known idle state with two discoverable suites.
+        useStore.setState({
+            suites: [
+                { relPath: "test/a.spec.js", absPath: "/x/a.spec.js" },
+                { relPath: "test/b.spec.js", absPath: "/x/b.spec.js" },
+            ],
+            selectedSpec: "test/a.spec.js",
+            selectedNode: null,
+            state: { state: "idle" },
+            suiteTrees: {},
+            config: {},
+        });
+    });
+
+    it("idle: clicking another suite applies immediately, no dialog", () => {
+        render(<App />);
+        // Sanity: dialog not present.
+        expect(screen.queryByRole("dialog", { name: /switch suite/i })).not.toBeInTheDocument();
+
+        fireEvent.click(screen.getByText("test/b.spec.js"));
+
+        expect(useStore.getState().selectedSpec).toBe("test/b.spec.js");
+        expect(screen.queryByRole("dialog", { name: /switch suite/i })).not.toBeInTheDocument();
     });
 });
