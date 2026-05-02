@@ -224,7 +224,7 @@ export default function App() {
                         role="dialog"
                         onCancel={() => { if (!switching) setPendingSelection(null); }}
                     >
-                        {!switching && (
+                        {!switching ? (
                             <div className="space-y-2 p-4">
                                 <p>A run is in progress. Switching will stop it. Continue?</p>
                                 <div className="text-xs opacity-70 font-mono">
@@ -234,10 +234,19 @@ export default function App() {
                                     New: {pendingSelection?.spec ?? "(clear selection)"}
                                     {pendingSelection?.node ? ` — ${pendingSelection.node.fullTitle}` : pendingSelection ? " — whole file" : ""}
                                 </div>
-                                <div className="flex gap-2 pt-2">
+                            </div>
+                        ) : (
+                            <div className="flex items-center gap-3 p-4">
+                                <Spinner />
+                                <span>Stopping current run…</span>
+                            </div>
+                        )}
+                        {/* slot="footer" replaces the dialog's default OK/Cancel buttons. */}
+                        <div slot="footer" className="flex gap-2">
+                            {!switching && (
+                                <>
                                     <EfButton
                                         cta
-                                        disabled={switching || undefined}
                                         onClick={() => {
                                             if (switching) return;
                                             setSwitching(true);
@@ -245,15 +254,9 @@ export default function App() {
                                         }}
                                     >Switch</EfButton>
                                     <EfButton onClick={() => setPendingSelection(null)}>Keep running</EfButton>
-                                </div>
-                            </div>
-                        )}
-                        {switching && (
-                            <div className="flex items-center gap-3 p-4">
-                                <Spinner />
-                                <span>Stopping current run…</span>
-                            </div>
-                        )}
+                                </>
+                            )}
+                        </div>
                     </EfDialog>
                 )}
             </main>
