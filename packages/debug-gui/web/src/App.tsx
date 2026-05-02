@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { useStore } from "./state/store";
 import { TestTree, type TestSelection } from "./components/TestTree";
@@ -47,6 +47,12 @@ export default function App() {
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [pendingSelection, setPendingSelection] = useState<TestSelection | null>(null);
     const [switching, setSwitching] = useState(false);
+    // Captured at the moment the suite-switch dialog opens so we can restore
+    // focus to whatever row QA clicked once the dialog closes (Keep running,
+    // Switch+apply, or auto-dismiss). Without this, focus lands on
+    // <body>, which breaks keyboard navigation.
+    const dialogReturnFocus = useRef<HTMLElement | null>(null);
+    const dialogWasOpen = useRef(false);
     const isLive = state.state === "running" || state.state === "pre-running" || state.state === "paused";
     const settingsDisabled = isLive || switching;
 
@@ -63,8 +69,33 @@ export default function App() {
             useStore.getState().selectSuite(next?.spec ?? null, next?.node ?? null);
             return;
         }
+        // About to open the dialog — capture the element that will lose
+        // focus when refinitiv-ui's <ef-dialog> moves focus to the modal,
+        // so we can put it back when the dialog closes.
+        const active = document.activeElement;
+        dialogReturnFocus.current = active instanceof HTMLElement ? active : null;
         setPendingSelection(next);
     }
+
+    // Focus restore for the suite-switch dialog. Whenever the dialog
+    // transitions from open → closed (any path: Keep running, Switch+apply,
+    // auto-dismiss from natural finish), put focus back on the row QA
+    // originally clicked. Skipped if the captured element is no longer in
+    // the DOM (e.g. TestTree re-rendered with new suites).
+    useEffect(() => {
+        const isOpen = pendingSelection !== null;
+        if (isOpen) {
+            dialogWasOpen.current = true;
+            return;
+        }
+        if (!dialogWasOpen.current) return;
+        dialogWasOpen.current = false;
+        const target = dialogReturnFocus.current;
+        dialogReturnFocus.current = null;
+        if (target && target.isConnected) {
+            target.focus();
+        }
+    }, [pendingSelection]);
 
     useEffect(() => {
         if (!switching) return;
@@ -131,6 +162,7 @@ export default function App() {
                 onSelect={(sel) => requestSelectionChange(sel)}
                 onOpenSettings={() => setSettingsOpen(true)}
                 settingsDisabled={settingsDisabled}
+                disabled={switching}
             />
             <main className="flex-1 p-4 overflow-auto space-y-4">
                 <div className="flex items-center gap-3">

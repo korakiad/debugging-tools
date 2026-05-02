@@ -39,6 +39,10 @@ export interface TestTreeProps {
     onSelect: (sel: TestSelection) => void;
     onOpenSettings?: () => void;
     settingsDisabled?: boolean;
+    // When true, all selectable rows (file, describe, it) become aria-disabled
+    // no-ops. Used during the suite-switch "switching" phase so QA cannot
+    // queue another selection while the cancel is in flight.
+    disabled?: boolean;
     // Test seam: lets unit tests bypass /api/suite/tree.
     fetchTree?: (spec: string) => Promise<SuiteTree>;
 }
@@ -55,6 +59,7 @@ export function TestTree({
     onSelect,
     onOpenSettings,
     settingsDisabled,
+    disabled,
     fetchTree,
 }: TestTreeProps) {
     // Keyed by spec relPath. We lazy-load on first expansion so the parse
@@ -160,9 +165,17 @@ export function TestTree({
                                     </button>
                                     <button
                                         type="button"
-                                        className="suite-row"
+                                        className={
+                                            "suite-row" +
+                                            (disabled ? " opacity-50 pointer-events-none" : "")
+                                        }
                                         aria-pressed={fileSelected}
-                                        onClick={() => onSelect({ spec: s.relPath, node: null })}
+                                        aria-disabled={disabled || undefined}
+                                        tabIndex={disabled ? -1 : undefined}
+                                        onClick={() => {
+                                            if (disabled) return;
+                                            onSelect({ spec: s.relPath, node: null });
+                                        }}
                                     >
                                         {s.relPath}
                                     </button>
@@ -198,6 +211,7 @@ export function TestTree({
                                                         spec={s.relPath}
                                                         isSelected={isSelected}
                                                         onSelect={onSelect}
+                                                        disabled={disabled}
                                                     />
                                                 ))}
                                             </ul>
@@ -219,12 +233,14 @@ function NodeRow({
     spec,
     isSelected,
     onSelect,
+    disabled,
 }: {
     node: SuiteNode;
     depth: number;
     spec: string;
     isSelected: (spec: string, node: SelectedNode | null) => boolean;
     onSelect: (sel: TestSelection) => void;
+    disabled?: boolean;
 }) {
     // describe blocks are open by default — most QA suites are 1-2 levels
     // deep, so chasing carets adds friction with no payoff.
@@ -259,15 +275,18 @@ function NodeRow({
                 <button
                     type="button"
                     aria-pressed={selected}
-                    aria-disabled={dynamic || undefined}
+                    aria-disabled={dynamic || disabled || undefined}
+                    tabIndex={disabled ? -1 : undefined}
                     title={dynamic ? "Dynamic title — running this row falls back to the whole file" : node.fullTitle}
                     className={
                         "suite-row text-xs " +
                         (node.kind === "describe" ? "font-semibold " : "") +
                         (node.pending ? "opacity-60 italic " : "") +
-                        (dynamic ? "opacity-60 " : "")
+                        (dynamic ? "opacity-60 " : "") +
+                        (disabled ? "opacity-50 pointer-events-none " : "")
                     }
                     onClick={() => {
+                        if (disabled) return;
                         if (dynamic) {
                             onSelect({ spec, node: null });
                             return;
@@ -291,6 +310,7 @@ function NodeRow({
                             spec={spec}
                             isSelected={isSelected}
                             onSelect={onSelect}
+                            disabled={disabled}
                         />
                     ))}
                 </ul>

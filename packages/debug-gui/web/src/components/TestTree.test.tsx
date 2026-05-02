@@ -186,6 +186,42 @@ describe("TestTree", () => {
         expect(onOpenSettings).toHaveBeenCalledTimes(1);
     });
 
+    it("when disabled, file row clicks are no-ops and rows are aria-disabled", async () => {
+        const onSelect = vi.fn();
+        render(
+            <TestTree
+                suites={oneSuite}
+                selection={null}
+                onSelect={onSelect}
+                fetchTree={async () => sampleTree}
+                disabled
+            />
+        );
+        const fileRow = screen.getByRole("button", { name: "test/a.spec.js" });
+        expect(fileRow).toHaveAttribute("aria-disabled", "true");
+        fireEvent.click(fileRow);
+        expect(onSelect).not.toHaveBeenCalled();
+    });
+
+    it("when disabled, describe/it row clicks are no-ops and rows are aria-disabled", async () => {
+        const onSelect = vi.fn();
+        render(
+            <TestTree
+                suites={oneSuite}
+                selection={null}
+                onSelect={onSelect}
+                fetchTree={async () => sampleTree}
+                disabled
+            />
+        );
+        fireEvent.click(screen.getByLabelText("expand test/a.spec.js"));
+        await waitFor(() => rowByText(/should enter username/));
+        const itRow = rowByText(/should enter username/);
+        expect(itRow).toHaveAttribute("aria-disabled", "true");
+        fireEvent.click(itRow);
+        expect(onSelect).not.toHaveBeenCalled();
+    });
+
     it("disables the empty-state Open Settings button when settingsDisabled", () => {
         render(
             <TestTree
