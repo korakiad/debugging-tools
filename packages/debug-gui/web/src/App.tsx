@@ -55,6 +55,7 @@ export default function App() {
         !!(a && b && a.kind === b.kind && a.fullTitle === b.fullTitle);
 
     function requestSelectionChange(next: TestSelection | null) {
+        if (switching) return;
         const sameAsCurrent =
             (next?.spec ?? null) === selectedSpec && sameNode(next?.node ?? null, selectedNode);
         if (sameAsCurrent) return;
@@ -188,7 +189,7 @@ export default function App() {
                 <SelectionPanel
                     spec={selectedSpec}
                     node={selectedNode}
-                    onClear={() => requestSelectionChange({ spec: selectedSpec!, node: null })}
+                    onClear={selectedSpec ? () => requestSelectionChange({ spec: selectedSpec, node: null }) : undefined}
                 />
                 {selectedSpec && selectedNode && previewCode && (
                     <CodePreview
@@ -234,10 +235,15 @@ export default function App() {
                                     {pendingSelection?.node ? ` — ${pendingSelection.node.fullTitle}` : pendingSelection ? " — whole file" : ""}
                                 </div>
                                 <div className="flex gap-2 pt-2">
-                                    <EfButton cta onClick={() => {
-                                        setSwitching(true);
-                                        send({ type: "cancel" });
-                                    }}>Switch</EfButton>
+                                    <EfButton
+                                        cta
+                                        disabled={switching || undefined}
+                                        onClick={() => {
+                                            if (switching) return;
+                                            setSwitching(true);
+                                            send({ type: "cancel" });
+                                        }}
+                                    >Switch</EfButton>
                                     <EfButton onClick={() => setPendingSelection(null)}>Keep running</EfButton>
                                 </div>
                             </div>
