@@ -86,4 +86,22 @@ describe("App suite-switch confirmation", () => {
         expect(useStore.getState().selectedSpec).toBe("test/a.spec.js");
         expect(sendSpy).not.toHaveBeenCalledWith(expect.objectContaining({ type: "cancel" }));
     });
+
+    it("running: clicking 'Switch' sends cancel, shows 'Stopping…', does NOT yet swap selection", () => {
+        useStore.setState({ state: { state: "running" } });
+        render(<App />);
+
+        fireEvent.click(screen.getByText("test/b.spec.js"));
+        fireEvent.click(screen.getByRole("button", { name: /^switch$/i }));
+
+        expect(sendSpy).toHaveBeenCalledWith({ type: "cancel" });
+        // Dialog still open, but in switching phase.
+        expect(screen.getByRole("dialog", { name: /switch suite/i })).toBeInTheDocument();
+        expect(screen.getByText(/stopping current run/i)).toBeInTheDocument();
+        // Buttons gone.
+        expect(screen.queryByRole("button", { name: /^switch$/i })).not.toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: /keep running/i })).not.toBeInTheDocument();
+        // Selection unchanged.
+        expect(useStore.getState().selectedSpec).toBe("test/a.spec.js");
+    });
 });
