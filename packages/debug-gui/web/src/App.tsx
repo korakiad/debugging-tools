@@ -181,7 +181,7 @@ export default function App() {
                 <SelectionPanel
                     spec={selectedSpec}
                     node={selectedNode}
-                    onClear={() => useStore.setState({ selectedNode: null })}
+                    onClear={() => requestSelectionChange({ spec: selectedSpec!, node: null })}
                 />
                 {selectedSpec && selectedNode && previewCode && (
                     <CodePreview

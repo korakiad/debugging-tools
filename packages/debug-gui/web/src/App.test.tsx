@@ -115,6 +115,20 @@ describe("App suite-switch confirmation", () => {
         expect(useStore.getState().selectedSpec).toBe("test/a.spec.js");
     });
 
+    it("running: SelectionPanel clear button while node is selected opens confirm dialog", () => {
+        useStore.setState({
+            state: { state: "running" },
+            selectedSpec: "test/a.spec.js",
+            selectedNode: { kind: "it", fullTitle: "Login should pass" },
+        });
+        render(<App />);
+
+        fireEvent.click(screen.getByRole("button", { name: /clear selection/i }));
+
+        expect(screen.getByRole("dialog", { name: /switch suite/i })).toBeInTheDocument();
+        expect(useStore.getState().selectedNode).toEqual({ kind: "it", fullTitle: "Login should pass" });
+    });
+
     it("after Switch: when status flips to idle, pendingSelection is applied and dialog closes", () => {
         useStore.setState({ state: { state: "running" } });
         render(<App />);
