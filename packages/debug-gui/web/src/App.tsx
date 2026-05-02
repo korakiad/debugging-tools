@@ -48,7 +48,7 @@ export default function App() {
     const [pendingSelection, setPendingSelection] = useState<TestSelection | null>(null);
     const [switching, setSwitching] = useState(false);
     const isLive = state.state === "running" || state.state === "pre-running" || state.state === "paused";
-    const settingsDisabled = state.state === "running" || state.state === "pre-running" || state.state === "paused";
+    const settingsDisabled = isLive || switching;
 
     const sameNode = (a: TestSelection["node"], b: TestSelection["node"]) =>
         (!a && !b) ||
@@ -104,8 +104,8 @@ export default function App() {
     //                 any time a runner is alive (incl. some transitional states).
     //
     // Pick what fits QA's workflow and edit the two booleans below.
-    const canStart = !!selectedSpec && (state.state === "idle" || state.state === "done") && !preRunDirty;
-    const canStop = state.state === "running" || state.state === "paused";
+    const canStart = !!selectedSpec && (state.state === "idle" || state.state === "done") && !preRunDirty && !switching;
+    const canStop = (state.state === "running" || state.state === "paused") && !switching;
 
     return (
         <div className="flex h-screen">
@@ -143,20 +143,27 @@ export default function App() {
                         <PreRunRow
                             saved={savedPreRun}
                             skip={skipPreRun}
-                            disabled={state.state === "running" || state.state === "pre-running" || state.state === "paused"}
+                            disabled={settingsDisabled}
                             onSave={(preRun) => send({ type: "settings_update", preRun })}
                             onSkipChange={setSkipPreRun}
                             onDirtyChange={setPreRunDirty}
                         />
                     )}
                     {state.state === "paused" && (
-                        <EfButton cta onClick={() => send({ type: "continue" })}>
+                        <EfButton
+                            cta
+                            disabled={switching || undefined}
+                            onClick={() => {
+                                if (switching) return;
+                                send({ type: "continue" });
+                            }}
+                        >
                             Continue
                         </EfButton>
                     )}
                     <ModeToggle
                         mode={mode}
-                        disabled={state.state === "running" || state.state === "pre-running" || state.state === "paused"}
+                        disabled={settingsDisabled}
                         onChange={(m) => send({ type: "settings_update", mode: m })}
                     />
                     <button

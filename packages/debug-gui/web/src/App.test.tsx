@@ -144,4 +144,23 @@ describe("App suite-switch confirmation", () => {
         expect(useStore.getState().selectedSpec).toBe("test/b.spec.js");
         expect(screen.queryByRole("dialog", { name: /switch suite/i })).not.toBeInTheDocument();
     });
+
+    it("during switching: clicking Stop is a no-op (canStop guarded)", () => {
+        useStore.setState({ state: { state: "running" } });
+        render(<App />);
+
+        fireEvent.click(screen.getByText("test/b.spec.js"));
+        fireEvent.click(screen.getByRole("button", { name: /^switch$/i }));
+        // First cancel was sent by the Switch click itself.
+        expect(sendSpy).toHaveBeenCalledTimes(1);
+        expect(sendSpy).toHaveBeenLastCalledWith({ type: "cancel" });
+
+        // Now switching=true. canStop should be false, so the Stop button's
+        // onClick guard (`if (canStop) send(...)`) must drop the click.
+        // We can't observe ef-button's `disabled` attr in this jsdom + @lit/react
+        // (node build) test environment — the wrapper doesn't reflect props
+        // onto the lit element here — so we assert behaviour: no extra cancel.
+        fireEvent.click(screen.getByRole("button", { name: /^stop$/i }));
+        expect(sendSpy).toHaveBeenCalledTimes(1);
+    });
 });
