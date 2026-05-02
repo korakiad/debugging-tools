@@ -53,7 +53,7 @@ describe("ChatDrawer", () => {
     });
 
     it("does not render PromptPanel when pendingPrompt is null", () => {
-        render(
+        const { container } = render(
             <ChatDrawer
                 onSend={() => {}}
                 onAbort={() => {}}
@@ -61,7 +61,11 @@ describe("ChatDrawer", () => {
                 onPromptRespond={() => {}}
             />,
         );
-        // No "assistant:" label — chatMessages is empty and no prompt is pending.
-        expect(screen.queryByText("assistant:")).not.toBeInTheDocument();
+        // Assert directly that the PromptPanel block isn't mounted, rather
+        // than relying on the absence of an "assistant:" label (which
+        // happens to be true here only because chatMessages is also empty
+        // — using it as a proxy would silently start passing if the chat
+        // role label were renamed).
+        expect(container.querySelector(".prompt-summary")).toBeNull();
     });
 });

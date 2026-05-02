@@ -100,6 +100,21 @@ Today `settingsDisabled` is `state.state === "running" || "pre-running" || "paus
 
 If the server never transitions out of live (cancel hangs): the dialog stays on "Stopping current run…" indefinitely. This is the same failure surface as the existing Stop button — `runner.kill()` + `tree-kill` are already the reliable path. No retry/timeout logic added. YAGNI.
 
+## Implementation note (post-merge)
+
+The implementation introduced a `selectSuite` store action (in
+`web/src/state/store.ts`) that the App's selection wrapper calls instead
+of mutating `selectedSpec` / `selectedNode` directly. `selectSuite` wipes
+spec-scoped run-output (mochaLog, mochaExitCode, currentFailure,
+currentSpec) on any change, and — when only the node differs within
+the same spec — preserves agent-session-scoped state (chatMessages,
+agentThinking/Activity, pendingDiff/Pick/Prompt) so a re-grep
+mid-conversation doesn't blow away the chat or kill an unanswered
+diff modal. This means the test plan below now also has to cover
+the new clearing semantics: see store.test.ts → `selectSuite` describe
+block for the unit-level coverage of "spec changes vs. node changes vs.
+no change."
+
 ## Test plan
 
 Added to `web/src/App.test.tsx` (already exists, has WS + store harness):

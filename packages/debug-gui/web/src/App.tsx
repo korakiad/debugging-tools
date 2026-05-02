@@ -302,7 +302,10 @@ export default function App() {
                                     <EfButton
                                         cta
                                         onClick={() => {
-                                            if (switching) return;
+                                            // No need to guard on switching here: this
+                                            // EfButton is rendered inside the {!switching && ...}
+                                            // branch above, so it cannot be clicked while a
+                                            // cancel is in flight.
                                             setSwitching(true);
                                             send({ type: "cancel" });
                                         }}

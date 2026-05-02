@@ -593,3 +593,21 @@ Both must pass with zero failures.
 - [ ] Web bundle builds: `npm run build -w @debug-gui/web`
 - [ ] Manual smoke test (Task 10) all six scenarios passed
 - [ ] No changes to `packages/debug-gui/server/` (server protocol unchanged — sanity-check with `git diff main -- packages/debug-gui/server/`)
+
+## Implementation note (post-merge)
+
+The final implementation introduced a `selectSuite` store action in
+`web/src/state/store.ts` to replace ad-hoc `useStore.setState({ selectedSpec, selectedNode })`
+calls scattered through `App.tsx`. The action centralises the clearing
+semantics: when the spec actually changes, all spec-scoped run-output
+(mochaLog, mochaExitCode, currentFailure, currentSpec) AND
+agent-session-scoped state (chatMessages, agentThinking/Activity,
+pendingDiff/Pick/Prompt) is dropped. When only the `node` differs
+within the same spec, only spec-scoped run-output is cleared —
+agent-session-scoped state is preserved, so a re-grep mid-conversation
+doesn't blow away the chat or kill an unanswered diff modal. The
+node-change cleanup is what enabled removing the "swap to a different
+test inside the same spec wipes the chat" footgun the design didn't
+foresee. The `selectSuite` describe block in `state/store.test.ts`
+covers all three transitions (spec-change, node-change-same-spec,
+no-change).
