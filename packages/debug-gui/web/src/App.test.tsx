@@ -179,6 +179,18 @@ describe("App suite-switch confirmation", () => {
         expect(screen.queryByText("Status: paused")).not.toBeInTheDocument();
     });
 
+    it("dialog auto-dismisses and selection applies when run finishes naturally", () => {
+        useStore.setState({ state: { state: "running" } });
+        render(<App />);
+        fireEvent.click(screen.getByText("test/b.spec.js"));
+        expect(screen.getByRole("dialog", { name: /switch suite/i })).toBeInTheDocument();
+        act(() => {
+            useStore.getState().applyEvent({ type: "status", state: "done" });
+        });
+        expect(screen.queryByRole("dialog", { name: /switch suite/i })).not.toBeInTheDocument();
+        expect(useStore.getState().selectedSpec).toBe("test/b.spec.js");
+    });
+
     it("during switching: clicking Stop is a no-op (canStop guarded)", () => {
         useStore.setState({ state: { state: "running" } });
         render(<App />);

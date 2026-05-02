@@ -83,6 +83,20 @@ export default function App() {
         setSwitching(false);
     }, [switching, state.state, pendingSelection]);
 
+    // Race: dialog is open (pendingSelection !== null) but the run finished
+    // naturally before QA decided. The cancel branch (Switch button) is
+    // pointless here — the server is already idle. Auto-apply the pending
+    // selection and dismiss the dialog. QA's row-click was already a
+    // commitment to that selection; the natural completion just removes
+    // the need for a confirm.
+    useEffect(() => {
+        if (switching) return;
+        if (pendingSelection === null) return;
+        if (isLive) return;
+        useStore.getState().selectSuite(pendingSelection.spec, pendingSelection.node);
+        setPendingSelection(null);
+    }, [switching, pendingSelection, isLive]);
+
     // Show the row whenever preRun is configured. First-run setup (no value)
     // is not exposed here; dev commits initial value OR user triggers the
     // row by setting preRun via a one-off settings command later.
