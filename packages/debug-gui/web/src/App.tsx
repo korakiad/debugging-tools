@@ -215,7 +215,6 @@ export default function App() {
                         onChange={(m) => send({ type: "settings_update", mode: m })}
                     />
                     <EfButton
-                        transparent
                         aria-label="settings"
                         style={{ marginLeft: "auto" }}
                         disabled={settingsDisabled || undefined}
