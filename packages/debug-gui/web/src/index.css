@@ -2,6 +2,30 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Halo dark's :host([cta]) renders ef-button with bg #0d0d0d, which
+   is the same color as body{background:#0d0d0d} from the halo native
+   theme — a "primary action" button reads as plain text on the
+   toolbar. Lift cta to the halo primary blue so Start / Continue
+   read as the dominant action. Light-DOM rules outrank shadow
+   :host() rules per the CSS Scoping spec, but halo also injects via
+   the ef.customStyles event with its own specificity, so use
+   !important to keep the override from regressing if upstream
+   reshuffles the rule order. */
+ef-button[cta]:not([disabled]) {
+    background-color: var(--ef-primary, #334bff) !important;
+    color: #fff !important;
+    border-color: var(--ef-primary, #334bff) !important;
+}
+ef-button[cta]:not([disabled]):hover {
+    background-color: var(--ef-primary-hover, #1429bd) !important;
+    border-color: var(--ef-primary-hover, #1429bd) !important;
+}
+ef-button[cta][disabled] {
+    background-color: rgba(51, 75, 255, 0.25) !important;
+    color: rgba(255, 255, 255, 0.5) !important;
+    border-color: rgba(51, 75, 255, 0.25) !important;
+}
+
 /* Suite-row mirrors refinitiv-ui's ef-tree-item (halo dark): flat list
    rows with collapsed top/bottom borders, subtle resting bg, group rows
    slightly lighter, selection = #333 + 3px primary accent stripe (not
