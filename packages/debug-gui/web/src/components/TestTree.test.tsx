@@ -222,7 +222,7 @@ describe("TestTree", () => {
         expect(onSelect).not.toHaveBeenCalled();
     });
 
-    it("disables the empty-state Open Settings button when settingsDisabled", () => {
+    it("disables the empty-state Open Settings button when settingsDisabled", async () => {
         render(
             <TestTree
                 suites={[]}
@@ -232,6 +232,12 @@ describe("TestTree", () => {
                 settingsDisabled
             />
         );
-        expect(screen.getByRole("button", { name: /open settings/i })).toBeDisabled();
+        // ef-button (a Lit element) reflects the disabled prop to the
+        // attribute on its next update tick, so the matcher needs an
+        // async waitFor — toBeDisabled() reads the attribute, not the
+        // property.
+        await waitFor(() =>
+            expect(screen.getByRole("button", { name: /open settings/i })).toBeDisabled(),
+        );
     });
 });

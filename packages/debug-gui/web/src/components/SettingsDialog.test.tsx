@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { SettingsDialog, parseExtensionsInput } from "./SettingsDialog";
+import { setEfValue } from "../test-utils/ef-events";
 
 describe("SettingsDialog", () => {
     it("does not render when open=false", () => {
@@ -22,12 +23,18 @@ describe("SettingsDialog", () => {
                 onClose={() => {}}
             />
         );
-        expect((screen.getByLabelText("glob 1") as HTMLInputElement).value).toBe("test/**/*.spec.ts");
-        expect((screen.getByLabelText("exclude 1") as HTMLInputElement).value).toBe("dist/**");
-        expect((screen.getByLabelText("idle timeout minutes") as HTMLInputElement).value).toBe("5");
+        expect((screen.getByLabelText("glob 1") as unknown as { value: string }).value).toBe(
+            "test/**/*.spec.ts",
+        );
+        expect((screen.getByLabelText("exclude 1") as unknown as { value: string }).value).toBe(
+            "dist/**",
+        );
+        expect((screen.getByLabelText("idle timeout minutes") as unknown as { value: string }).value).toBe(
+            "5",
+        );
     });
 
-    it("Save is disabled when nothing has changed", () => {
+    it("Save is disabled when nothing has changed", async () => {
         render(
             <SettingsDialog
                 open
@@ -36,10 +43,12 @@ describe("SettingsDialog", () => {
                 onClose={() => {}}
             />
         );
-        expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
+        await waitFor(() =>
+            expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled(),
+        );
     });
 
-    it("emits patch containing only changed fields", () => {
+    it("emits patch containing only changed fields", async () => {
         const onSave = vi.fn();
         render(
             <SettingsDialog
@@ -49,12 +58,15 @@ describe("SettingsDialog", () => {
                 onClose={() => {}}
             />
         );
-        fireEvent.change(screen.getByLabelText("idle timeout minutes"), { target: { value: "2" } });
+        setEfValue(screen.getByLabelText("idle timeout minutes"), "2");
+        await waitFor(() =>
+            expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled(),
+        );
         fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
         expect(onSave).toHaveBeenCalledWith({ idleTimeoutMs: 2 * 60 * 1000 });
     });
 
-    it("adding a glob row and saving emits the new list in discovery.globs", () => {
+    it("adding a glob row and saving emits the new list in discovery.globs", async () => {
         const onSave = vi.fn();
         render(
             <SettingsDialog
@@ -65,12 +77,15 @@ describe("SettingsDialog", () => {
             />
         );
         fireEvent.click(screen.getByRole("button", { name: /add glob/i }));
-        fireEvent.change(screen.getByLabelText("glob 2"), { target: { value: "b" } });
+        setEfValue(screen.getByLabelText("glob 2"), "b");
+        await waitFor(() =>
+            expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled(),
+        );
         fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
         expect(onSave).toHaveBeenCalledWith({ discovery: { globs: ["a", "b"] } });
     });
 
-    it("removing an exclude row emits the shortened list in discovery.exclude", () => {
+    it("removing an exclude row emits the shortened list in discovery.exclude", async () => {
         const onSave = vi.fn();
         render(
             <SettingsDialog
@@ -81,11 +96,14 @@ describe("SettingsDialog", () => {
             />
         );
         fireEvent.click(screen.getByLabelText(/remove exclude 1/i));
+        await waitFor(() =>
+            expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled(),
+        );
         fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
         expect(onSave).toHaveBeenCalledWith({ discovery: { exclude: ["y"] } });
     });
 
-    it("Save stays disabled when idle minutes is below 1", () => {
+    it("Save stays disabled when idle minutes is below 1", async () => {
         render(
             <SettingsDialog
                 open
@@ -94,9 +112,11 @@ describe("SettingsDialog", () => {
                 onClose={() => {}}
             />
         );
-        fireEvent.change(screen.getByLabelText("idle timeout minutes"), { target: { value: "0" } });
+        setEfValue(screen.getByLabelText("idle timeout minutes"), "0");
+        await waitFor(() =>
+            expect(screen.getByText(/at least 1 minute/i)).toBeInTheDocument(),
+        );
         expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
-        expect(screen.getByText(/at least 1 minute/i)).toBeInTheDocument();
     });
 
     it("clicking Cancel calls onClose without onSave", () => {
@@ -119,10 +139,12 @@ describe("SettingsDialog", () => {
                 onClose={() => {}}
             />
         );
-        expect((screen.getByLabelText("extensions") as HTMLInputElement).value).toBe("js, ts");
+        expect((screen.getByLabelText("extensions") as unknown as { value: string }).value).toBe(
+            "js, ts",
+        );
     });
 
-    it("emits parsed extensions in the patch on save", () => {
+    it("emits parsed extensions in the patch on save", async () => {
         const onSave = vi.fn();
         render(
             <SettingsDialog
@@ -132,22 +154,29 @@ describe("SettingsDialog", () => {
                 onClose={() => {}}
             />
         );
-        fireEvent.change(screen.getByLabelText("extensions"), { target: { value: "js, .ts,  tsx" } });
+        setEfValue(screen.getByLabelText("extensions"), "js, .ts,  tsx");
+        await waitFor(() =>
+            expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled(),
+        );
         fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
         expect(onSave).toHaveBeenCalledWith({
             discovery: { extensions: ["js", "ts", "tsx"] },
         });
     });
 
-    it("shows a preview of the effective extension pattern", () => {
+    it("shows a preview of the effective extension pattern", async () => {
         render(
             <SettingsDialog open config={{}} onSave={() => {}} onClose={() => {}} />
         );
-        fireEvent.change(screen.getByLabelText("extensions"), { target: { value: "js" } });
-        expect(screen.getByText(/Will be applied as/).textContent).toContain(".js");
+        setEfValue(screen.getByLabelText("extensions"), "js");
+        await waitFor(() =>
+            expect(screen.getByText(/Will be applied as/).textContent).toContain(".js"),
+        );
 
-        fireEvent.change(screen.getByLabelText("extensions"), { target: { value: "js, ts" } });
-        expect(screen.getByText(/Will be applied as/).textContent).toContain(".{js,ts}");
+        setEfValue(screen.getByLabelText("extensions"), "js, ts");
+        await waitFor(() =>
+            expect(screen.getByText(/Will be applied as/).textContent).toContain(".{js,ts}"),
+        );
     });
 
     it("shows a 'no patterns yet' hint when a glob list is empty", () => {

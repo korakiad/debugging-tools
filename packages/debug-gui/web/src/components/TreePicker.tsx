@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { EfTree } from "../ui";
+import { EfButton, EfDialog, EfTree } from "../ui";
 import type { TreeSelection } from "../lib/projection";
 
 export interface FsTreeNode {
@@ -97,26 +97,29 @@ export function TreePicker({ open, extensions, fetchTree, onPick, onCancel }: Tr
     };
 
     return (
-        <div
-            role="dialog"
+        <EfDialog
+            opened
+            header="Pick test files or folders"
+            // Mirror SettingsDialog: ef-dialog renders the header inside an
+            // ef-header but doesn't aria-labelledby the host, so spell out
+            // the accessible name for `getByRole("dialog")` lookups.
             aria-label="pick-test-files"
-            aria-modal="true"
-            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70"
-            onClick={onCancel}
+            style={{ width: "640px", maxHeight: "85vh" }}
+            onCancel={onCancel}
+            onOpenedChanged={(e) => {
+                const opened = (e as CustomEvent<{ value: boolean }>).detail.value;
+                if (!opened) onCancel();
+            }}
         >
-            <div
-                className="bg-neutral-900 border border-gray-700 rounded shadow-xl p-4 w-[640px] max-h-[85vh] overflow-auto text-sm"
-                onClick={(e) => e.stopPropagation()}
-            >
-                <h3 className="text-base font-semibold mb-2">Pick test files or folders</h3>
-                <p className="opacity-70 text-xs mb-3">
+            <div className="text-sm space-y-3 p-1">
+                <p className="opacity-70 text-xs">
                     Tick folders to include their test files, or individual files.
                     Saving replaces the current discovery globs.
                 </p>
 
                 {loading && <p className="opacity-70">Loading project tree…</p>}
                 {error && (
-                    <div className="mb-3">
+                    <div>
                         <p className="text-red-400 text-sm">Failed to load tree: {error}</p>
                         <p className="opacity-60 text-xs mt-1">
                             Close this and try again, or add globs by hand.
@@ -125,7 +128,10 @@ export function TreePicker({ open, extensions, fetchTree, onPick, onCancel }: Tr
                 )}
 
                 {!loading && !error && (
-                    <div className="max-h-[50vh] overflow-auto border border-gray-700 rounded p-2 mb-3">
+                    <div
+                        className="max-h-[50vh] overflow-auto rounded p-2"
+                        style={{ border: "1px solid var(--ef-border-color, #404040)" }}
+                    >
                         {data.length === 0 ? (
                             <div className="px-2 py-6 text-center text-sm">
                                 <p className="opacity-70 mb-1">No files matched.</p>
@@ -138,26 +144,19 @@ export function TreePicker({ open, extensions, fetchTree, onPick, onCancel }: Tr
                         )}
                     </div>
                 )}
-
-                <div className="flex justify-end gap-2">
-                    <button
-                        type="button"
-                        onClick={onCancel}
-                        className="px-3 py-1 rounded border border-gray-600"
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        type="button"
-                        onClick={handleUse}
-                        disabled={loading || !!error}
-                        className="px-3 py-1 rounded border border-gray-600 disabled:opacity-40"
-                    >
-                        Use these
-                    </button>
-                </div>
             </div>
-        </div>
+
+            <div slot="footer" className="flex justify-end gap-2">
+                <EfButton onClick={onCancel}>Cancel</EfButton>
+                <EfButton
+                    cta
+                    onClick={handleUse}
+                    disabled={loading || !!error || undefined}
+                >
+                    Use these
+                </EfButton>
+            </div>
+        </EfDialog>
     );
 }
 

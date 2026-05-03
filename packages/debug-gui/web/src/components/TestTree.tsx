@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useStore, type SelectedNode } from "../state/store";
+import { EfButton } from "../ui";
 
 interface Suite {
     relPath: string;
@@ -130,14 +131,12 @@ export function TestTree({
                         Configure where to find them in Settings.
                     </p>
                     {onOpenSettings && (
-                        <button
-                            type="button"
+                        <EfButton
                             onClick={onOpenSettings}
-                            disabled={settingsDisabled}
-                            className="px-3 py-1 rounded border border-gray-600 text-xs disabled:opacity-40 disabled:cursor-not-allowed"
+                            disabled={settingsDisabled || undefined}
                         >
                             Open Settings ⚙
-                        </button>
+                        </EfButton>
                     )}
                 </div>
             ) : (
