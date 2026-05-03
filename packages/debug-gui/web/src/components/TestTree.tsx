@@ -122,8 +122,8 @@ export function TestTree({
     };
 
     return (
-        <nav className="w-72 border-r h-full overflow-auto p-2">
-            <h2 className="text-sm font-bold mb-2">Test Suites</h2>
+        <nav aria-label="test suites" className="test-tree-panel w-72 h-full overflow-auto">
+            <h2 className="test-tree-panel-header">Test Suites</h2>
             {suites.length === 0 ? (
                 <div className="px-2 py-6 text-center text-sm">
                     <p className="opacity-70 mb-1">Looks like there are no test files yet.</p>
@@ -140,7 +140,7 @@ export function TestTree({
                     )}
                 </div>
             ) : (
-                <ul className="space-y-1">
+                <ul>
                     {suites.map((s) => {
                         const isOpen = !!expanded[s.relPath];
                         const tree = trees[s.relPath];

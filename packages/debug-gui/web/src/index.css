@@ -49,14 +49,33 @@ ef-button[cta][disabled] {
     border-color: rgba(51, 75, 255, 0.25) !important;
 }
 
-/* Suite-row mirrors refinitiv-ui's ef-tree-item (halo dark): flat list
-   rows with collapsed top/bottom borders, subtle resting bg, group rows
-   slightly lighter, selection = #333 + 3px primary accent stripe (not
-   full blue). Hover/focus is the only state that uses full primary blue.
-   .suite-item is the outer chrome (border + bg) that wraps the toggle
-   and the .suite-row label so the disclosure arrow is visually inside
-   the row, not floating outside it.
-   Source: node_modules/@refinitiv-ui/elements/lib/tree/themes/halo/dark/. */
+/* Test Suites sidebar — pattern lifted from the LSEG TOPNEWS app's
+   "Trending topics" panel: a single elevated container, a small-caps
+   section header, and rows on transparent backgrounds separated by
+   1px hairlines in the page bg color (negative-space cuts in the
+   panel surface, not loud borders). */
+.test-tree-panel {
+    background: var(--debug-gui-bg-elevated);
+    border-right: 1px solid var(--debug-gui-bg-base);
+}
+.test-tree-panel-header {
+    margin: 0;
+    padding: 12px 16px 10px;
+    background: var(--debug-gui-bg-toolbar);
+    color: var(--debug-gui-text-strong, #fff);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--debug-gui-bg-base);
+}
+
+/* Suite-row mirrors the TOPNEWS list-item pattern: transparent rows
+   with a 1px border-top in the page bg color so adjacent items show
+   a thin negative-space separator on the elevated panel. .suite-item
+   is the outer chrome (border + bg) that wraps the toggle and the
+   .suite-row label so the disclosure arrow is visually inside the
+   row, not floating outside it. */
 .suite-item {
     display: flex;
     align-items: stretch;
@@ -64,34 +83,28 @@ ef-button[cta][disabled] {
     box-sizing: border-box;
     min-width: 0;
     min-height: 28px;
-    background-color: #1a1a1a;
+    background-color: transparent;
     border: 0;
     border-left: 3px solid transparent;
-    border-top: 1px solid #404040;
-    border-bottom: 1px solid #404040;
-    margin-top: -1px;
+    border-top: 1px solid var(--debug-gui-bg-base);
     color: inherit;
     transition: background-color 120ms, color 120ms, border-left-color 120ms;
 }
 .suite-item-group {
-    background-color: #262626;
+    background-color: transparent;
 }
 .suite-item:hover {
-    background-color: var(--ef-primary, #1429bd);
-    color: #fff;
-    border-top-color: var(--ef-primary, #1429bd);
-    border-bottom-color: var(--ef-primary, #1429bd);
+    background-color: rgba(255, 255, 255, 0.05);
+    color: var(--debug-gui-text-strong, #fff);
 }
 .suite-item-selected {
-    background-color: #333;
-    color: #fff;
+    background-color: var(--debug-gui-bg-active, rgba(96, 104, 127, 0.12));
+    color: var(--debug-gui-text-strong, #fff);
     border-left-color: var(--ef-primary, #334bff);
 }
 .suite-item-selected:hover {
-    background-color: var(--ef-primary, #1429bd);
-    color: #fff;
-    border-top-color: var(--ef-primary, #1429bd);
-    border-bottom-color: var(--ef-primary, #1429bd);
+    background-color: rgba(255, 255, 255, 0.08);
+    color: var(--debug-gui-text-strong, #fff);
 }
 
 /* Inner clickable label — transparent so the wrapper's chrome shows
