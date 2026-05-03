@@ -2,15 +2,38 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Palette sampled from the LSEG webchart workspace (Refinitiv halo
+   variant): a deep navy base instead of the halo native #0d0d0d
+   plain-black, with cool light-blue text. Toolbars sit on a darker
+   navy, elevated surfaces (inputs, panels) on a slightly lighter
+   navy, and "active" toggles use a subtle gray glow rather than
+   saturated primary blue.
+   Reference: rgb(13,23,45) body, rgb(4,13,38) toolbar, rgb(27,35,55)
+   elevated, rgba(96,104,127,0.12) active glow, rgb(207,215,241) text. */
+:root {
+    --debug-gui-bg-base: #0d172d;
+    --debug-gui-bg-toolbar: #040d26;
+    --debug-gui-bg-elevated: #1b2337;
+    --debug-gui-bg-active: rgba(96, 104, 127, 0.12);
+    --debug-gui-text-primary: #cfd7f1;
+    --debug-gui-text-strong: #fff;
+}
+
+/* Halo native-elements.css forces body{background:#0d0d0d}; override
+   to the LSEG navy and tint the default text to match. */
+body {
+    background: var(--debug-gui-bg-base) !important;
+    color: var(--debug-gui-text-primary);
+}
+
 /* Halo dark's :host([cta]) renders ef-button with bg #0d0d0d, which
-   is the same color as body{background:#0d0d0d} from the halo native
-   theme — a "primary action" button reads as plain text on the
-   toolbar. Lift cta to the halo primary blue so Start / Continue
-   read as the dominant action. Light-DOM rules outrank shadow
-   :host() rules per the CSS Scoping spec, but halo also injects via
-   the ef.customStyles event with its own specificity, so use
-   !important to keep the override from regressing if upstream
-   reshuffles the rule order. */
+   reads as plain text on the new navy bg too. Lift cta to the halo
+   primary blue so Start / Continue stay visibly dominant — the LSEG
+   webchart toolbar uses subtle borderless toggles for everything,
+   but Start is a one-shot trigger, not a toggle, so we keep an
+   emphasised treatment. Light-DOM rules outrank shadow :host()
+   rules per the CSS Scoping spec; use !important to keep the
+   override stable if upstream reshuffles the rule order. */
 ef-button[cta]:not([disabled]) {
     background-color: var(--ef-primary, #334bff) !important;
     color: #fff !important;

@@ -52,6 +52,7 @@ export function SelectionPanel({ spec, node, onClear }: SelectionPanelProps) {
             </div>
             {node && onClear && (
                 <EfButton
+                    transparent
                     onClick={onClear}
                     aria-label="clear selection (run whole file)"
                     title="Run whole file instead"
