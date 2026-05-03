@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { EfButton, EfCheckbox, EfTextField } from "../ui";
 
 export interface PreRunRowProps {
     saved: string;
@@ -23,29 +24,31 @@ export function PreRunRow({
     return (
         <div className="flex items-center gap-2 text-sm">
             <label className="opacity-70" htmlFor="prerun-input">Pre-run:</label>
-            <input
+            <EfTextField
                 id="prerun-input"
                 aria-label="pre-run"
-                className="px-2 py-1 rounded border border-gray-600 bg-transparent font-mono text-xs w-64"
+                style={{ width: "16rem" }}
                 placeholder="e.g. npm run build"
                 value={value}
-                onChange={(e) => setValue(e.target.value)}
-                disabled={disabled}
+                onValueChanged={(e) =>
+                    setValue((e as CustomEvent<{ value: string }>).detail.value)
+                }
+                disabled={disabled || undefined}
             />
-            <button
-                type="button"
-                className="px-2 py-1 rounded border border-gray-600 text-xs disabled:opacity-40 disabled:cursor-not-allowed"
-                disabled={saveDisabled}
+            <EfButton
+                disabled={saveDisabled || undefined}
                 onClick={() => onSave(value)}
             >
                 Save
-            </button>
+            </EfButton>
             <label className="flex items-center gap-1 opacity-80">
-                <input
-                    type="checkbox"
+                <EfCheckbox
+                    aria-label="skip this run"
                     checked={skip}
-                    onChange={(e) => onSkipChange(e.target.checked)}
-                    disabled={disabled}
+                    onCheckedChanged={(e) =>
+                        onSkipChange((e as CustomEvent<{ value: boolean }>).detail.value)
+                    }
+                    disabled={disabled || undefined}
                 />
                 Skip this run
             </label>
