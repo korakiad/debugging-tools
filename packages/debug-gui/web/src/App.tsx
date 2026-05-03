@@ -125,15 +125,15 @@ export default function App() {
                         disabled={state.state === "running" || state.state === "pre-running" || state.state === "paused"}
                         onChange={(m) => send({ type: "settings_update", mode: m })}
                     />
-                    <button
-                        type="button"
+                    <EfButton
+                        transparent
                         aria-label="settings"
-                        className="ml-auto px-2 py-1 rounded border border-gray-600 text-sm disabled:opacity-40"
-                        disabled={settingsDisabled}
+                        style={{ marginLeft: "auto" }}
+                        disabled={settingsDisabled || undefined}
                         onClick={() => setSettingsOpen(true)}
                     >
                         ⚙
-                    </button>
+                    </EfButton>
                 </div>
                 <SettingsDialog
                     open={settingsOpen}

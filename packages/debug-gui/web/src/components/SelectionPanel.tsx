@@ -1,4 +1,5 @@
 import type { SelectedNode } from "../state/store";
+import { EfButton } from "../ui";
 
 export interface SelectionPanelProps {
     spec: string | null;
@@ -50,15 +51,14 @@ export function SelectionPanel({ spec, node, onClear }: SelectionPanelProps) {
                 )}
             </div>
             {node && onClear && (
-                <button
-                    type="button"
+                <EfButton
+                    transparent
                     onClick={onClear}
                     aria-label="clear selection (run whole file)"
                     title="Run whole file instead"
-                    className="text-xs px-2 py-1 rounded border border-gray-600 opacity-80 hover:opacity-100"
                 >
                     Run whole file
-                </button>
+                </EfButton>
             )}
         </div>
     );
