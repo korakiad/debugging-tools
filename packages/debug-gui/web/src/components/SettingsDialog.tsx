@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { TreePicker } from "./TreePicker";
 import { selectionToGlobs } from "../lib/projection";
+import { EfButton, EfDialog, EfNumberField, EfTextField } from "../ui";
 
 export interface DebugGuiConfigShape {
     discovery?: { globs?: string[]; exclude?: string[]; extensions?: string[] };
@@ -84,49 +85,56 @@ export function SettingsDialog({ open, config, onSave, onClose }: SettingsDialog
     };
 
     return (
-        <div
-            role="dialog"
-            aria-labelledby="settings-title"
-            aria-modal="true"
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-            onClick={onClose}
+        <EfDialog
+            opened
+            header="Settings"
+            // role=dialog is set by ef-dialog itself; aria-label is what
+            // assistive tech (and testing-library's getByRole {name}) reads
+            // for the dialog's accessible name. ef-dialog renders the
+            // header inside an internal ef-header but doesn't aria-labelledby
+            // the host, so spell it out here.
+            aria-label="Settings"
+            style={{ width: "560px", maxHeight: "85vh" }}
+            onCancel={onClose}
+            onOpenedChanged={(e) => {
+                const opened = (e as CustomEvent<{ value: boolean }>).detail.value;
+                if (!opened) onClose();
+            }}
         >
-            <div
-                className="bg-neutral-900 border border-gray-700 rounded shadow-xl p-5 w-[560px] max-h-[85vh] overflow-auto text-sm"
-                onClick={(e) => e.stopPropagation()}
-            >
-                <h2 id="settings-title" className="text-base font-semibold mb-4">Settings</h2>
-
-                <section className="mb-5">
+            <div className="text-sm space-y-5 p-1">
+                <section>
                     <h3 className="font-semibold mb-2">Test file extensions</h3>
                     <p className="opacity-70 text-xs mb-2">
-                        Comma-separated. Leave blank to infer from existing globs. Example: <code className="font-mono">js, ts</code>
+                        Comma-separated. Leave blank to infer from existing globs. Example:{" "}
+                        <code className="font-mono">js, ts</code>
                     </p>
-                    <input
-                        type="text"
+                    <EfTextField
                         aria-label="extensions"
                         value={extensionsInput}
                         placeholder="js, ts"
-                        onChange={(e) => setExtensionsInput(e.target.value)}
-                        className="px-2 py-1 rounded border border-gray-600 bg-transparent font-mono text-xs w-full"
+                        onValueChanged={(e) =>
+                            setExtensionsInput(
+                                (e as CustomEvent<{ value: string }>).detail.value,
+                            )
+                        }
+                        style={{ width: "100%", fontFamily: "monospace" }}
                     />
                     {parsedExtensions.length > 0 && (
                         <p className="opacity-60 text-xs mt-1">
-                            Will be applied as <code className="font-mono">{parsedExtensions.length === 1 ? `.${parsedExtensions[0]}` : `.{${parsedExtensions.join(",")}}`}</code>
+                            Will be applied as{" "}
+                            <code className="font-mono">
+                                {parsedExtensions.length === 1
+                                    ? `.${parsedExtensions[0]}`
+                                    : `.{${parsedExtensions.join(",")}}`}
+                            </code>
                         </p>
                     )}
                 </section>
 
-                <section className="mb-5">
+                <section>
                     <div className="flex items-center justify-between mb-2">
                         <h3 className="font-semibold">Test discovery globs</h3>
-                        <button
-                            type="button"
-                            onClick={() => setPickerOpen(true)}
-                            className="px-2 py-1 rounded border border-gray-600 text-xs"
-                        >
-                            Browse…
-                        </button>
+                        <EfButton onClick={() => setPickerOpen(true)}>Browse…</EfButton>
                     </div>
                     <p className="opacity-70 text-xs mb-2">
                         Patterns used to find test files (relative to the project root).
@@ -154,7 +162,7 @@ export function SettingsDialog({ open, config, onSave, onClose }: SettingsDialog
                     }}
                 />
 
-                <section className="mb-5">
+                <section>
                     <h3 className="font-semibold mb-2">Ignore patterns</h3>
                     <p className="opacity-70 text-xs mb-2">
                         Files matching these patterns are excluded from discovery.
@@ -168,43 +176,34 @@ export function SettingsDialog({ open, config, onSave, onClose }: SettingsDialog
                     />
                 </section>
 
-                <section className="mb-5">
+                <section>
                     <h3 className="font-semibold mb-2">Agent idle timeout</h3>
-                    <label className="flex items-center gap-2">
-                        <input
-                            type="number"
+                    <div className="flex items-center gap-2">
+                        <EfNumberField
                             aria-label="idle timeout minutes"
-                            min={1}
-                            value={Number.isFinite(idleMin) ? idleMin : ""}
-                            onChange={(e) => setIdleMin(Number(e.target.value))}
-                            className="px-2 py-1 rounded border border-gray-600 bg-transparent w-24 font-mono"
+                            min="1"
+                            value={Number.isFinite(idleMin) ? String(idleMin) : ""}
+                            onValueChanged={(e) => {
+                                const raw = (e as CustomEvent<{ value: string }>).detail.value;
+                                setIdleMin(raw === "" ? NaN : Number(raw));
+                            }}
+                            style={{ width: "6rem" }}
                         />
                         <span className="opacity-70">minutes</span>
-                    </label>
+                    </div>
                     {!idleValid && (
                         <p className="text-red-400 text-xs mt-1">Must be at least 1 minute.</p>
                     )}
                 </section>
-
-                <div className="flex justify-end gap-2 mt-4">
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        className="px-3 py-1 rounded border border-gray-600"
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        type="button"
-                        disabled={!canSave}
-                        onClick={handleSave}
-                        className="px-3 py-1 rounded border border-gray-600 disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                        Save
-                    </button>
-                </div>
             </div>
-        </div>
+
+            <div slot="footer" className="flex justify-end gap-2">
+                <EfButton onClick={onClose}>Cancel</EfButton>
+                <EfButton cta disabled={!canSave || undefined} onClick={handleSave}>
+                    Save
+                </EfButton>
+            </div>
+        </EfDialog>
     );
 }
 
@@ -221,38 +220,29 @@ function GlobList({ values, onChange, inputAriaLabel, addLabel, placeholder }: G
         <div className="space-y-1">
             {values.map((v, i) => (
                 <div key={i} className="flex items-center gap-2">
-                    <input
-                        type="text"
+                    <EfTextField
                         aria-label={`${inputAriaLabel} ${i + 1}`}
                         value={v}
                         placeholder={placeholder}
-                        onChange={(e) => {
+                        onValueChanged={(e) => {
                             const next = [...values];
-                            next[i] = e.target.value;
+                            next[i] = (e as CustomEvent<{ value: string }>).detail.value;
                             onChange(next);
                         }}
-                        className="px-2 py-1 rounded border border-gray-600 bg-transparent font-mono text-xs flex-1"
+                        style={{ flex: 1, fontFamily: "monospace" }}
                     />
-                    <button
-                        type="button"
+                    <EfButton
                         aria-label={`remove ${inputAriaLabel} ${i + 1}`}
                         onClick={() => onChange(values.filter((_, j) => j !== i))}
-                        className="px-2 py-1 rounded border border-gray-600 text-xs"
                     >
                         Remove
-                    </button>
+                    </EfButton>
                 </div>
             ))}
             {values.length === 0 && (
                 <p className="opacity-60 text-xs">No patterns yet.</p>
             )}
-            <button
-                type="button"
-                onClick={() => onChange([...values, ""])}
-                className="px-2 py-1 rounded border border-gray-600 text-xs"
-            >
-                {addLabel}
-            </button>
+            <EfButton onClick={() => onChange([...values, ""])}>{addLabel}</EfButton>
         </div>
     );
 }
