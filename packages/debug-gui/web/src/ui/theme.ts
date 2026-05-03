@@ -20,3 +20,9 @@ import "@refinitiv-ui/elements/dialog/themes/halo/dark";
 
 import "@refinitiv-ui/elements/tree";
 import "@refinitiv-ui/elements/tree/themes/halo/dark";
+
+import "@refinitiv-ui/elements/checkbox";
+import "@refinitiv-ui/elements/checkbox/themes/halo/dark";
+
+import "@refinitiv-ui/elements/number-field";
+import "@refinitiv-ui/elements/number-field/themes/halo/dark";
