@@ -41,25 +41,25 @@ export function ChatDrawer({
     };
 
     return (
-        <aside className="w-96 border-l h-full flex flex-col">
-            <h2 className="p-2 font-bold text-sm border-b">Chat</h2>
+        <section className="chat-drawer" aria-label="Agent chat">
+            <header className="chat-drawer-header">Chat</header>
             <div
                 ref={scrollRef}
                 role="log"
                 aria-live="polite"
-                className="flex-1 overflow-auto p-2 space-y-2"
+                className="chat-drawer-log"
             >
                 {messages.map((m, i) => (
-                    <div key={i} className="text-sm">
-                        <div className="font-bold">{m.role}:</div>
-                        <div className="whitespace-pre-wrap">{m.content}</div>
+                    <div key={i} className="chat-drawer-message">
+                        <div className="chat-drawer-role">{m.role}:</div>
+                        <div className="chat-drawer-content">{m.content}</div>
                     </div>
                 ))}
                 {thinking && (
-                    <div className="flex items-center gap-2 text-sm italic opacity-70">
+                    <div className="chat-drawer-thinking">
                         <Spinner />
                         <span>{activity || "Agent thinking…"}</span>
-                        <span className="ml-auto not-italic">
+                        <span className="chat-drawer-stop">
                             <EfButton transparent onClick={onAbort} aria-label="Stop agent">
                                 Stop
                             </EfButton>
@@ -76,7 +76,7 @@ export function ChatDrawer({
                 )}
             </div>
             <div
-                className="flex border-t p-2 gap-2"
+                className="chat-drawer-input"
                 onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
@@ -94,6 +94,6 @@ export function ChatDrawer({
                     Send
                 </EfButton>
             </div>
-        </aside>
+        </section>
     );
 }
