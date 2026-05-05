@@ -46,6 +46,14 @@ export interface DeriveOutputs {
     };
 }
 
+// Synthetic rows (currentFailure, pendingDiff) have no `receivedAt` and
+// fall back to `Date.now()`. Caller invokes deriveLog inside a useMemo
+// keyed on those exact inputs, so the timestamp re-anchors only when
+// the failure/diff itself changes — not on every re-render. A
+// `mocha_log` arriving while paused will retroactively bump the
+// synthetic row's TIME column; acceptable for v1 since structured
+// `test_progress` events (with their own timestamps) will replace this
+// path.
 function relativeTime(receivedAt: number | undefined, startedAt: number): number {
     if (startedAt <= 0) return 0;
     if (receivedAt == null) return Math.max(0, Date.now() - startedAt);
