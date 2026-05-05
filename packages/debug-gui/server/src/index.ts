@@ -132,10 +132,21 @@ export async function main(
         }),
         makeAskUserTool({
             onAsk: (summary, options, allowFreeText) => {
+                // SKILL.md item 2 mandates allowFreeText in manual mode so QA can
+                // surface context the agent's CDP inspection can't see. Force it
+                // here so a model that ignores the SKILL rule can't disable it.
+                const effectiveAllowFreeText =
+                    config.agent.mode === "manual" ? true : allowFreeText;
                 const reqId = Math.random().toString(36).slice(2);
                 return new Promise((resolve, reject) => {
                     askResolvers.set(reqId, { resolve, reject });
-                    hub.broadcast({ type: "prompt", reqId, summary, options, allowFreeText });
+                    hub.broadcast({
+                        type: "prompt",
+                        reqId,
+                        summary,
+                        options,
+                        allowFreeText: effectiveAllowFreeText,
+                    });
                 });
             },
         }),
@@ -237,9 +248,13 @@ export async function main(
                         const manualPreamble =
                             config.agent.mode === "manual"
                                 ? `You are in MANUAL mode. After each CDP/playwright-cli inspection, ` +
-                                  `call ask_user with a 1-line summary and 2-3 suggested next steps as ` +
-                                  `options. Option ids that apply a fix MUST start with 'apply_'. ` +
-                                  `Do NOT call edit_file until QA chooses an apply_* option.\n\n`
+                                  `call ask_user with a two-line summary (Hypothesis line "ผมคิดว่า ` +
+                                  `[root cause] เพราะ [evidence]" + Invitation line asking QA for ` +
+                                  `context you can't see) and 2-3 suggested next steps as options. ` +
+                                  `allowFreeText: true is mandatory. Option ids that apply a fix MUST ` +
+                                  `start with 'apply_'. Do NOT call edit_file until QA chooses an ` +
+                                  `apply_* option. If QA chooses apply_* AND adds new context in ` +
+                                  `freeText, do NOT apply — acknowledge, re-investigate, and re-ask.\n\n`
                                 : "";
                         await agentSession!.sendAndWait(
                             {
@@ -252,10 +267,16 @@ export async function main(
                                     `  file:  ${f.file}\n` +
                                     `  error: ${f.error}\n` +
                                     `  stack:\n${f.stack}\n\n` +
-                                    `Follow the walkthrough SKILL: inspect the live app via playwright-cli ` +
-                                    `(CDP port ${config.cdp.port}) to find the correct selector/fix, ` +
-                                    `then call edit_file with the proposed change. ` +
-                                    `The QA operator will click Continue in the GUI to resume the test runner.`,
+                                    `Follow the walkthrough SKILL. For ANY element-related failure ` +
+                                    `(wrong selector, element not found, not interactable, wrong element ` +
+                                    `clicked, assertion on element text/value), call \`pick_element\` ` +
+                                    `FIRST with a short hint — QA visually identifying the element is ` +
+                                    `more reliable than guessing from a DOM snapshot, regardless of app ` +
+                                    `size. Use playwright-cli (CDP port ${config.cdp.port}) only for ` +
+                                    `non-element issues (timing, navigation, console errors) or to ` +
+                                    `confirm details after picking. Then call edit_file with the proposed ` +
+                                    `change. The QA operator will click Continue in the GUI to resume the ` +
+                                    `test runner.`,
                             },
                             config.agent.idleTimeoutMs,
                         );
