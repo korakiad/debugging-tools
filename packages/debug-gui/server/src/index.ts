@@ -65,9 +65,21 @@ export async function main(
         "../../.claude/skills/identify-element/references/pick-element.js",
     );
 
+    const lspResult = await ensureLspConfig(cwd);
+    const lspWarning: LspWarning | null =
+        lspResult.status === "ok"
+            ? null
+            : {
+                kind: lspResult.status,
+                message: lspResult.message,
+                installCmd: lspResult.installCmd,
+                stderrTail: lspResult.stderrTail,
+            };
+    console.log(`[lsp] ${lspResult.status}${lspResult.message ? `: ${lspResult.message}` : ""}`);
+
     const app = createApp({
         cwd,
-        loadInit: () => ({ suites, config, state: session.getState() }),
+        loadInit: () => ({ suites, config, state: session.getState(), lsp: lspResult.status }),
         hooker,
     });
 
@@ -87,18 +99,6 @@ export async function main(
         app.use(express.static(webDist));
         app.get(/^\/(?!api|ws).*/, (_req, res) => res.sendFile(path.join(webDist, "index.html")));
     }
-
-    const lspResult = await ensureLspConfig(cwd);
-    const lspWarning: LspWarning | null =
-        lspResult.status === "ok"
-            ? null
-            : {
-                kind: lspResult.status,
-                message: lspResult.message,
-                installCmd: lspResult.installCmd,
-                stderrTail: lspResult.stderrTail,
-            };
-    console.log(`[lsp] ${lspResult.status}${lspResult.message ? `: ${lspResult.message}` : ""}`);
 
     const httpServer = http.createServer(app);
 
