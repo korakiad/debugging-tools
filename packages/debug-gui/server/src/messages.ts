@@ -1,5 +1,12 @@
 import type { FailureInfo, SessionSnapshot } from "./session.js";
 
+export interface LspWarning {
+    kind: "missing" | "broken" | "config-invalid" | "fs-error";
+    message?: string;
+    installCmd?: string;
+    stderrTail?: string;
+}
+
 export type ServerEvent =
     | { type: "init"; suites: unknown[]; config: unknown; state: SessionSnapshot }
     | { type: "status"; state: SessionSnapshot["state"] }
@@ -23,6 +30,7 @@ export type ServerEvent =
     }
     | { type: "config_updated"; config: unknown }
     | { type: "suites_updated"; suites: unknown[] }
+    | { type: "lsp/warning"; warning: LspWarning }
     | { type: "error"; message: string };
 
 export type ClientCommand =
