@@ -130,41 +130,65 @@ export async function main(
                 // handlers into the *test* browser (not debug-gui's own UI) and
                 // blocks until QA clicks. Stdout is JSON with DOM attributes +
                 // frame chain — exactly what the agent needs to build a selector.
+                //
+                // playwright-cli operates on named sessions. We attach a fresh
+                // session per pick (cheap; daemon spin-up is ~1s) and detach
+                // after run-code returns, so concurrent picks don't collide
+                // and we don't leak sessions across runs.
                 const reqId = Math.random().toString(36).slice(2);
+                const sessionName = `dgui_pick_${reqId}`;
                 hub.broadcast({ type: "pick", reqId, hint });
                 return new Promise<Record<string, unknown>>((resolve, reject) => {
                     pickResolvers.set(reqId, { resolve, reject });
-                    const child = spawn(
-                        "npx",
-                        ["playwright-cli", "--raw", "run-code", "--filename", pickScriptPath],
-                        {
-                            env: { ...process.env, PLAYWRIGHT_CDP_PORT: String(config.cdp.port) },
-                            shell: true,
-                        },
-                    );
+                    const cmd = [
+                        `npx playwright-cli attach --cdp="http://localhost:${config.cdp.port}" --session=${sessionName}`,
+                        `npx playwright-cli -s=${sessionName} --raw run-code --filename="${pickScriptPath}"`,
+                    ].join(" && ");
+                    const child = spawn(cmd, { shell: true, env: process.env });
                     if (child.pid) pickPids.set(reqId, child.pid);
                     let stdout = "";
                     let stderr = "";
                     child.stdout?.on("data", (b) => { stdout += b.toString(); });
                     child.stderr?.on("data", (b) => { stderr += b.toString(); });
+                    const cleanup = () => {
+                        // best-effort detach so the session daemon doesn't
+                        // outlive this pick. Errors here are silent — the
+                        // session may already be gone.
+                        spawn(`npx playwright-cli -s=${sessionName} detach`, {
+                            shell: true,
+                            env: process.env,
+                            stdio: "ignore",
+                        });
+                    };
                     child.on("exit", (code) => {
                         pickPids.delete(reqId);
                         const r = pickResolvers.get(reqId);
-                        if (!r) return; // already drained (cancel/abort)
+                        if (!r) { cleanup(); return; }
                         pickResolvers.delete(reqId);
                         hub.broadcast({ type: "pick_done", reqId });
                         if (code !== 0) {
-                            r.reject(new Error(`pick-element exited ${code}: ${stderr.trim() || stdout.trim()}`));
+                            cleanup();
+                            r.reject(new Error(`pick-element exited ${code}: ${(stderr || stdout).trim().slice(-500)}`));
+                            return;
+                        }
+                        // attach prints its own banner before run-code's JSON.
+                        // pick-element.js outputs a single JSON object on the
+                        // last line, so grab the last {...} block.
+                        const jsonMatch = stdout.match(/\{[\s\S]*\}\s*$/);
+                        cleanup();
+                        if (!jsonMatch) {
+                            r.reject(new Error(`pick-element no JSON in stdout: ${stdout.trim().slice(-500)}`));
                             return;
                         }
                         try {
-                            r.resolve(JSON.parse(stdout));
+                            r.resolve(JSON.parse(jsonMatch[0]));
                         } catch (e: any) {
-                            r.reject(new Error(`pick-element stdout not JSON: ${e?.message ?? e}`));
+                            r.reject(new Error(`pick-element JSON parse: ${e?.message ?? e}`));
                         }
                     });
                     child.on("error", (e) => {
                         pickPids.delete(reqId);
+                        cleanup();
                         const r = pickResolvers.get(reqId);
                         if (!r) return;
                         pickResolvers.delete(reqId);
