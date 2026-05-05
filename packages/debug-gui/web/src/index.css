@@ -490,13 +490,13 @@ button.prompt-option:focus-visible {
 
 /* Self-heal callout — a card that follows its row in the table. */
 .log-heal-block {
-    margin: 0 16px 12px !important;
-    padding: 12px 14px !important;
-    background: rgba(77, 208, 225, 0.06) !important;
-    border: 1px solid rgba(77, 208, 225, 0.25) !important;
-    border-left: 3px solid var(--ef-info, #4dd0e1) !important;
-    border-radius: 3px !important;
-    color: inherit !important;
+    margin: 0 16px 12px;
+    padding: 12px 14px;
+    background: rgba(77, 208, 225, 0.06);
+    border: 1px solid rgba(77, 208, 225, 0.25);
+    border-left: 3px solid var(--ef-info, #4dd0e1);
+    border-radius: 3px;
+    color: inherit;
 }
 .log-heal-block-header {
     display: flex;

@@ -41,8 +41,8 @@ describe("LogPanel", () => {
     it("renders a row per mocha log line with the correct level badge", () => {
         useStore.setState({
             mochaLog: [
-                { stream: "stdout", text: "  ✓ pass case", receivedAt: 0 },
-                { stream: "stderr", text: "ChromeDriver detached", receivedAt: 1 },
+                { stream: "stdout", text: "  ✓ pass case", receivedAt: 0, seq: 1 },
+                { stream: "stderr", text: "ChromeDriver detached", receivedAt: 1, seq: 2 },
             ],
             runStartedAt: 0,
         });
@@ -131,7 +131,7 @@ describe("LogPanel", () => {
                 },
             },
             mochaLog: [
-                { stream: "stdout", text: "  ✓ a", receivedAt: 0 },
+                { stream: "stdout", text: "  ✓ a", receivedAt: 0, seq: 1 },
             ],
             runStartedAt: 0,
             state: { state: "running" },
@@ -183,6 +183,7 @@ describe("LogPanel", () => {
                 file: "pages/login.page.js",
                 oldCode: "button.submit-btn",
                 newCode: "button[data-testid=\"login-submit\"]",
+                receivedAt: 0,
             },
         });
         render(<LogPanel />);

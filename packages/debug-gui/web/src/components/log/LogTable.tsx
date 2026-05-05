@@ -31,15 +31,20 @@ export function LogTable({ rows, truncated, onSelfHealRow }: LogTableProps) {
         );
     }
 
+    // Plain `aria-label`'d region instead of role="table" / "row" /
+    // "rowgroup" / "columnheader" / "cell": maintaining a valid grid tree
+    // alongside the SELF-HEAL block (which would otherwise need its own
+    // rowgroup) costs more than the screen-reader value of explicit
+    // tabular semantics here. The visual layout is grid-driven CSS.
     return (
-        <div className="log-table" role="table" aria-label="run log">
-            <div className="log-table-head" role="row">
-                <span role="columnheader">TIME</span>
-                <span role="columnheader">LEVEL</span>
-                <span role="columnheader">STEP</span>
-                <span role="columnheader">EVENT</span>
+        <section className="log-table" aria-label="run log">
+            <div className="log-table-head">
+                <span>TIME</span>
+                <span>LEVEL</span>
+                <span>STEP</span>
+                <span>EVENT</span>
             </div>
-            <div className="log-table-body" ref={ref} role="rowgroup">
+            <div className="log-table-body" ref={ref}>
                 {truncated && (
                     <div className="log-table-truncated" role="status">
                         Earlier lines truncated · scroll up in mocha output for full history.
@@ -47,10 +52,6 @@ export function LogTable({ rows, truncated, onSelfHealRow }: LogTableProps) {
                 )}
                 {rows.map((row) => {
                     if (row.level === "SELF-HEAL" && onSelfHealRow) {
-                        // Fragment so the LogRow keeps its `role="row"` as a
-                        // direct child of the rowgroup and the heal block
-                        // sits beside it — no synthetic wrapper that would
-                        // create a row-inside-a-row in the AOM.
                         return (
                             <Fragment key={row.id}>
                                 <LogRow row={row} />
@@ -61,6 +62,6 @@ export function LogTable({ rows, truncated, onSelfHealRow }: LogTableProps) {
                     return <LogRow key={row.id} row={row} />;
                 })}
             </div>
-        </div>
+        </section>
     );
 }

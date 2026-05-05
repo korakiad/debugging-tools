@@ -167,7 +167,7 @@ describe("App suite-switch confirmation", () => {
                     stack: "",
                 },
             },
-            mochaLog: [{ stream: "stdout", text: "old line", receivedAt: 0 }],
+            mochaLog: [{ stream: "stdout", text: "old line", receivedAt: 0, seq: 1 }],
         });
         render(<App />);
 
@@ -264,7 +264,7 @@ describe("App suite-switch confirmation", () => {
                 state: "paused",
                 currentFailure: { test: "x", file: "y", error: "boom", stack: "" },
             },
-            mochaLog: [{ stream: "stdout", text: "old line", receivedAt: 0 }],
+            mochaLog: [{ stream: "stdout", text: "old line", receivedAt: 0, seq: 1 }],
         });
         render(<App />);
 

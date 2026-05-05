@@ -27,6 +27,14 @@ function readStoredCollapsed(): boolean {
     }
 }
 
+function persistWidth(n: number) {
+    try {
+        window.localStorage.setItem(STORAGE_KEY_WIDTH, String(n));
+    } catch {
+        // localStorage unavailable (private mode, embed) — non-fatal.
+    }
+}
+
 export function RightPanel({
     title = "Debug actions",
     children,
@@ -69,16 +77,10 @@ export function RightPanel({
             document.body.style.userSelect = "";
             window.removeEventListener("mousemove", onMove);
             window.removeEventListener("mouseup", onUp);
-            // Persist whatever width we ended on. Reading from the closure
-            // would be stale (onMove updates width via setWidth, not via
-            // re-creating onUp), so we use the setState callback form to
-            // read the latest value.
+            // Persist via setState callback so we read the latest width
+            // (closure value would be stale — onMove updates via setWidth).
             setWidth((current) => {
-                try {
-                    window.localStorage.setItem(STORAGE_KEY_WIDTH, String(current));
-                } catch {
-                    /* localStorage unavailable; non-fatal */
-                }
+                persistWidth(current);
                 return current;
             });
         };
@@ -88,30 +90,16 @@ export function RightPanel({
 
     const onResizerKeyDown = (e: React.KeyboardEvent) => {
         if (collapsed) return;
+        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+        e.preventDefault();
         const step = e.shiftKey ? 48 : 16;
-        if (e.key === "ArrowLeft") {
-            e.preventDefault();
-            setWidth((w) => {
-                const next = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, w + step));
-                try {
-                    window.localStorage.setItem(STORAGE_KEY_WIDTH, String(next));
-                } catch {
-                    /* no-op */
-                }
-                return next;
-            });
-        } else if (e.key === "ArrowRight") {
-            e.preventDefault();
-            setWidth((w) => {
-                const next = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, w - step));
-                try {
-                    window.localStorage.setItem(STORAGE_KEY_WIDTH, String(next));
-                } catch {
-                    /* no-op */
-                }
-                return next;
-            });
-        }
+        // ArrowLeft grows (handle is on the left edge), ArrowRight shrinks.
+        const delta = e.key === "ArrowLeft" ? step : -step;
+        setWidth((w) => {
+            const next = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, w + delta));
+            persistWidth(next);
+            return next;
+        });
     };
 
     if (collapsed) {

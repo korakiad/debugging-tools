@@ -37,11 +37,15 @@ export function LogPanel() {
                 log,
                 runStartedAt: startedAt,
                 currentFailure: sessionState.currentFailure,
+                pausedAt: sessionState.pausedAt,
                 pendingDiff,
             }),
-        [log, startedAt, sessionState.currentFailure, pendingDiff]
+        [log, startedAt, sessionState.currentFailure, sessionState.pausedAt, pendingDiff]
     );
 
+    // Source-of-truth: source lines, not derived rows. splitLines can turn
+    // one source line into N rows, so `rows.length >= 500` would lie about
+    // when the store's slice(-500) actually starts dropping history.
     const truncated = log.length >= 500;
 
     // Breadcrumb — pull suite (parent describe) and test (leaf title)

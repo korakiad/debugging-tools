@@ -158,12 +158,12 @@ describe("store", () => {
 
     describe("selectSuite", () => {
         const stale = {
-            mochaLog: [{ stream: "stdout" as const, text: "old log\n", receivedAt: 0 }],
+            mochaLog: [{ stream: "stdout" as const, text: "old log\n", receivedAt: 0, seq: 1 }],
             mochaExitCode: 1,
             chatMessages: [{ role: "assistant" as const, content: "old chat" }],
             agentThinking: true,
             agentActivity: "thinking about old spec",
-            pendingDiff: { reqId: "d1", file: "old.js", oldCode: "a", newCode: "b" },
+            pendingDiff: { reqId: "d1", file: "old.js", oldCode: "a", newCode: "b", receivedAt: 0 },
             pendingPick: { reqId: "p1", imageUrl: "img", hint: "hint" },
             pendingPrompt: { reqId: "q1", summary: "s", options: [], allowFreeText: false },
             state: {

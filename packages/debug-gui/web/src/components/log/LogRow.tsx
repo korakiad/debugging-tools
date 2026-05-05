@@ -13,19 +13,18 @@ const LEVEL_TOKEN: Record<LogLevel, { color: string; bg: string }> = {
 export function LogRow({ row }: { row: LogRowData }) {
     const tone = LEVEL_TOKEN[row.level];
     return (
-        <div className="log-row" role="row" data-level={row.level}>
-            <span className="log-row-time" role="cell">{formatTime(row.timeMs)}</span>
+        <div className="log-row" data-level={row.level}>
+            <span className="log-row-time">{formatTime(row.timeMs)}</span>
             <span
                 className="log-row-level"
-                role="cell"
                 style={{ color: tone.color, background: tone.bg }}
             >
                 {row.level}
             </span>
-            <span className="log-row-step" role="cell">
+            <span className="log-row-step">
                 {row.step ?? "—"}
             </span>
-            <span className="log-row-event" role="cell">{row.text}</span>
+            <span className="log-row-event">{row.text}</span>
         </div>
     );
 }

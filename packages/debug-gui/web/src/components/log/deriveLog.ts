@@ -32,7 +32,11 @@ export interface DeriveInputs {
     log: MochaLogLine[];
     runStartedAt: number | null;
     currentFailure?: Failure;
-    pendingDiff?: { reqId: string; file: string; oldCode: string; newCode: string } | null;
+    // Wall-clock ms the `paused` event landed; used to anchor the synthetic
+    // FAIL row's TIME column. Falls back to startedAt (renders as 0) when
+    // the failure predates the current run anchor.
+    pausedAt?: number;
+    pendingDiff?: { reqId: string; file: string; oldCode: string; newCode: string; receivedAt: number } | null;
 }
 
 export interface DeriveOutputs {
@@ -46,18 +50,10 @@ export interface DeriveOutputs {
     };
 }
 
-// Synthetic rows (currentFailure, pendingDiff) have no `receivedAt` and
-// fall back to `Date.now()`. Caller invokes deriveLog inside a useMemo
-// keyed on those exact inputs, so the timestamp re-anchors only when
-// the failure/diff itself changes — not on every re-render. A
-// `mocha_log` arriving while paused will retroactively bump the
-// synthetic row's TIME column; acceptable for v1 since structured
-// `test_progress` events (with their own timestamps) will replace this
-// path.
-function relativeTime(receivedAt: number | undefined, startedAt: number): number {
+function relativeTime(timestamp: number | undefined, startedAt: number): number {
     if (startedAt <= 0) return 0;
-    if (receivedAt == null) return Math.max(0, Date.now() - startedAt);
-    return Math.max(0, receivedAt - startedAt);
+    if (timestamp == null) return 0;
+    return Math.max(0, timestamp - startedAt);
 }
 
 const TICK_RX = /^\s*[✓✔]\s+(.+?)(?:\s*\((\d+)ms\))?\s*$/;
@@ -101,7 +97,7 @@ export function deriveLog(inputs: DeriveInputs): DeriveOutputs {
     let passed = 0;
     let failed = 0;
 
-    inputs.log.forEach((logLine, index) => {
+    inputs.log.forEach((logLine) => {
         const lines = splitLines(logLine);
         const lineTime = relativeTime(logLine.receivedAt, startedAt);
         lines.forEach((line, subIndex) => {
@@ -117,8 +113,12 @@ export function deriveLog(inputs: DeriveInputs): DeriveOutputs {
                 failed += 1;
                 rowStep = step;
             }
+            // Key uses the source line's monotonic `seq` (assigned at push
+            // time in the store reducer), not the array index — so existing
+            // rows keep their identity when the buffer's slice(-500) drops
+            // older lines off the front.
             rows.push({
-                id: `m:${index}:${subIndex}`,
+                id: `m:${logLine.seq}:${subIndex}`,
                 timeMs: lineTime,
                 level,
                 step: rowStep,
@@ -131,7 +131,7 @@ export function deriveLog(inputs: DeriveInputs): DeriveOutputs {
         const failText = `${inputs.currentFailure.test} — ${inputs.currentFailure.error.split("\n")[0]}`;
         rows.push({
             id: `failure:${inputs.currentFailure.test}`,
-            timeMs: relativeTime(undefined, startedAt),
+            timeMs: relativeTime(inputs.pausedAt, startedAt),
             level: "FAIL",
             step: null,
             text: failText,
@@ -141,7 +141,7 @@ export function deriveLog(inputs: DeriveInputs): DeriveOutputs {
     if (inputs.pendingDiff) {
         rows.push({
             id: `heal:${inputs.pendingDiff.reqId}`,
-            timeMs: relativeTime(undefined, startedAt),
+            timeMs: relativeTime(inputs.pendingDiff.receivedAt, startedAt),
             level: "SELF-HEAL",
             step: null,
             text: "agent proposed selector self-heal",

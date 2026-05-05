@@ -1,15 +1,10 @@
-import { EfPanel } from "../../ui";
 import type { HealMeta } from "./deriveLog";
-
-interface SelfHealBlockProps extends HealMeta {
-    timeMs?: number;
-}
 
 const PLACEHOLDER = "—";
 
-export function SelfHealBlock({ strategy, confidence, durationMs, oldCode, newCode, filePath }: SelfHealBlockProps) {
+export function SelfHealBlock({ strategy, confidence, durationMs, oldCode, newCode, filePath }: HealMeta) {
     return (
-        <EfPanel spacing className="log-heal-block">
+        <section className="log-heal-block">
             <header className="log-heal-block-header">
                 <span className="log-heal-block-badge">SELF-HEAL</span>
                 <span className="log-heal-block-strategy">
@@ -40,6 +35,6 @@ export function SelfHealBlock({ strategy, confidence, durationMs, oldCode, newCo
                     <span className="log-heal-block-diff-line added">+ {newCode}</span>
                 </code>
             </pre>
-        </EfPanel>
+        </section>
     );
 }

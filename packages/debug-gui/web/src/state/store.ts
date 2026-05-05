@@ -16,12 +16,19 @@ export interface Snapshot {
     state: SessionState;
     currentSpec?: string;
     currentFailure?: Failure;
+    // Wall-clock ms when the runner reported a `paused` event. Captured here
+    // (not in deriveLog) so the synthetic FAIL row's TIME column is anchored
+    // at the moment of pause, not the moment deriveLog last re-ran.
+    pausedAt?: number;
 }
 export interface Diff {
     reqId: string;
     file: string;
     oldCode: string;
     newCode: string;
+    // Wall-clock ms the diff event landed in the store. Same rationale as
+    // Snapshot.pausedAt — keeps deriveLog pure of Date.now().
+    receivedAt: number;
 }
 export interface Pick {
     reqId: string;
@@ -48,6 +55,10 @@ export interface MochaLogLine {
     // display. We capture it here (rather than in deriveLog) so derivation
     // stays a pure function of state.
     receivedAt: number;
+    // Monotonic per-line id, assigned at push time. Survives the buffer
+    // slice(-500): deriveLog uses it as the React key so existing rows keep
+    // their identity when older lines fall off the front of the buffer.
+    seq: number;
 }
 
 // Selected describe/it inside the active spec. `null` means "run the whole
@@ -185,23 +196,16 @@ export const useStore = create<Store>((set) => ({
                         agentThinking: false, agentActivity: "",
                     };
                 }
-                // On idle/done: keep `runStartedAt` so deriveLog can still
-                // compute `receivedAt - startedAt` for the rows captured
-                // during the run. StatusHeader's useElapsed naturally
-                // freezes its display when state is not running/pre-running
-                // (the interval stops ticking and the state-change effect
-                // snaps `now` to the transition moment), so the elapsed
-                // value stays at its last reading without needing the
-                // anchor wiped. The anchor is reset when the next run
-                // starts (the running branch above), or when the user
-                // picks a different spec/node (selectSuite below).
+                // Keep `runStartedAt` on idle/done so deriveLog can still
+                // anchor row times for rows captured during the run; the
+                // next run reset the anchor in the running branch above.
                 return { state: { ...s.state, state: e.state } };
             }
             if (e.type === "paused") {
-                return { state: { ...s.state, state: "paused", currentFailure: e.failure } };
+                return { state: { ...s.state, state: "paused", currentFailure: e.failure, pausedAt: Date.now() } };
             }
             if (e.type === "diff") {
-                return { pendingDiff: { reqId: e.reqId, file: e.file, oldCode: e.oldCode, newCode: e.newCode } };
+                return { pendingDiff: { reqId: e.reqId, file: e.file, oldCode: e.oldCode, newCode: e.newCode, receivedAt: Date.now() } };
             }
             if (e.type === "pick") {
                 return { pendingPick: { reqId: e.reqId, imageUrl: e.imageUrl, hint: e.hint } };
@@ -217,9 +221,10 @@ export const useStore = create<Store>((set) => ({
                 };
             }
             if (e.type === "mocha_log") {
+                const lastSeq = s.mochaLog.length > 0 ? s.mochaLog[s.mochaLog.length - 1].seq : 0;
                 const next = [
                     ...s.mochaLog,
-                    { stream: e.stream, text: e.text, receivedAt: Date.now() },
+                    { stream: e.stream, text: e.text, receivedAt: Date.now(), seq: lastSeq + 1 },
                 ];
                 return { mochaLog: next.slice(-500) };
             }
