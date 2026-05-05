@@ -12,7 +12,8 @@ import { DiffView } from "./components/DiffView";
 import { PickerOverlay } from "./components/PickerOverlay";
 import { ModeToggle, type AgentMode } from "./components/ModeToggle";
 import { ChatDrawer } from "./components/ChatDrawer";
-import { MochaLogPanel } from "./components/MochaLogPanel";
+import { RightPanel } from "./components/RightPanel";
+import { LogPanel } from "./components/LogPanel";
 import { Spinner } from "./components/Spinner";
 import { PreRunRow } from "./components/PreRunRow";
 import { SettingsDialog, type DebugGuiConfigShape } from "./components/SettingsDialog";
@@ -246,23 +247,7 @@ export default function App() {
                         title={`${selectedSpec}:${matchedNode!.line}`}
                     />
                 )}
-                {state.currentFailure && <FailureCard failure={state.currentFailure} />}
-                <MochaLogPanel />
-                {diff && (
-                    <DiffView
-                        file={diff.file}
-                        oldCode={diff.oldCode}
-                        newCode={diff.newCode}
-                        onApprove={() => {
-                            send({ type: "diff_decision", reqId: diff.reqId, action: "approved" });
-                            useStore.setState({ pendingDiff: null });
-                        }}
-                        onReject={() => {
-                            send({ type: "diff_decision", reqId: diff.reqId, action: "rejected", reason: "" });
-                            useStore.setState({ pendingDiff: null });
-                        }}
-                    />
-                )}
+                <LogPanel />
                 {pendingSelection !== null && (
                     <EfDialog
                         opened
@@ -316,16 +301,34 @@ export default function App() {
                     </EfDialog>
                 )}
             </main>
-            <ChatDrawer
-                onSend={(prompt) => send({ type: "chat_send", prompt })}
-                onAbort={() => send({ type: "agent_abort" })}
-                pendingPrompt={prompt}
-                onPromptRespond={({ choice, freeText }) => {
-                    if (!prompt) return;
-                    send({ type: "prompt_response", reqId: prompt.reqId, choice, freeText });
-                    useStore.setState({ pendingPrompt: null });
-                }}
-            />
+            <RightPanel>
+                {state.currentFailure && <FailureCard failure={state.currentFailure} />}
+                {diff && (
+                    <DiffView
+                        file={diff.file}
+                        oldCode={diff.oldCode}
+                        newCode={diff.newCode}
+                        onApprove={() => {
+                            send({ type: "diff_decision", reqId: diff.reqId, action: "approved" });
+                            useStore.setState({ pendingDiff: null });
+                        }}
+                        onReject={() => {
+                            send({ type: "diff_decision", reqId: diff.reqId, action: "rejected", reason: "" });
+                            useStore.setState({ pendingDiff: null });
+                        }}
+                    />
+                )}
+                <ChatDrawer
+                    onSend={(prompt) => send({ type: "chat_send", prompt })}
+                    onAbort={() => send({ type: "agent_abort" })}
+                    pendingPrompt={prompt}
+                    onPromptRespond={({ choice, freeText }) => {
+                        if (!prompt) return;
+                        send({ type: "prompt_response", reqId: prompt.reqId, choice, freeText });
+                        useStore.setState({ pendingPrompt: null });
+                    }}
+                />
+            </RightPanel>
             {pick && (
                 <PickerOverlay
                     imageUrl={pick.imageUrl}

@@ -24,8 +24,11 @@
   "debug-gui": {
     "discovery": {
       "globs": [
-        "test/walkthrough-e2e/failing-selector.spec.js"
+        "test/walkthrough-e2e-wdio/login.spec.js"
       ]
+    },
+    "agent": {
+      "mode": "manual"
     }
   }
 }

@@ -16,6 +16,7 @@ describe("store", () => {
             pendingPrompt: null,
             mochaLog: [],
             mochaExitCode: undefined,
+            runStartedAt: null,
             agentThinking: false,
             agentActivity: "",
         });
@@ -45,6 +46,23 @@ describe("store", () => {
         useStore.getState().applyEvent({ type: "status", state: "pre-running" });
         expect(useStore.getState().state.state).toBe("pre-running");
         expect(useStore.getState().state.currentSpec).toBe("x.spec.js");
+    });
+
+    it("status done preserves runStartedAt so log rows keep their relative timestamps", () => {
+        useStore.setState({ runStartedAt: 1_700_000_000_000 });
+        useStore.getState().applyEvent({ type: "status", state: "done" });
+        expect(useStore.getState().state.state).toBe("done");
+        expect(useStore.getState().runStartedAt).toBe(1_700_000_000_000);
+    });
+
+    it("status running resets runStartedAt to 'now' on each new run", () => {
+        useStore.setState({ runStartedAt: 1_700_000_000_000 });
+        const before = Date.now();
+        useStore.getState().applyEvent({ type: "status", state: "running" });
+        const after = Date.now();
+        const got = useStore.getState().runStartedAt!;
+        expect(got).toBeGreaterThanOrEqual(before);
+        expect(got).toBeLessThanOrEqual(after);
     });
 
     it("initializes with idle state", () => {
@@ -140,12 +158,12 @@ describe("store", () => {
 
     describe("selectSuite", () => {
         const stale = {
-            mochaLog: [{ stream: "stdout" as const, text: "old log\n" }],
+            mochaLog: [{ stream: "stdout" as const, text: "old log\n", receivedAt: 0, seq: 1 }],
             mochaExitCode: 1,
             chatMessages: [{ role: "assistant" as const, content: "old chat" }],
             agentThinking: true,
             agentActivity: "thinking about old spec",
-            pendingDiff: { reqId: "d1", file: "old.js", oldCode: "a", newCode: "b" },
+            pendingDiff: { reqId: "d1", file: "old.js", oldCode: "a", newCode: "b", receivedAt: 0 },
             pendingPick: { reqId: "p1", imageUrl: "img", hint: "hint" },
             pendingPrompt: { reqId: "q1", summary: "s", options: [], allowFreeText: false },
             state: {
@@ -154,6 +172,31 @@ describe("store", () => {
                 currentFailure: { test: "t", file: "test/old.spec.js", error: "e", stack: "" },
             },
         };
+
+        it("is a no-op while a run is live (defensive guard)", () => {
+            // Every call site in App.tsx is gated on !isLive, but the
+            // reducer also self-protects so a future caller can't silently
+            // wipe a live agent session (chat, pendingDiff, …).
+            for (const live of ["running", "pre-running", "paused"] as const) {
+                useStore.setState({
+                    ...stale,
+                    selectedSpec: "test/old.spec.js",
+                    selectedNode: { kind: "it", fullTitle: "old > t" },
+                    state: { state: live, currentSpec: "test/old.spec.js" },
+                });
+
+                useStore.getState().selectSuite("test/new.spec.js", null);
+
+                const s = useStore.getState();
+                expect(s.selectedSpec).toBe("test/old.spec.js");
+                expect(s.selectedNode).toEqual({ kind: "it", fullTitle: "old > t" });
+                expect(s.chatMessages).toEqual(stale.chatMessages);
+                expect(s.pendingDiff).toEqual(stale.pendingDiff);
+                expect(s.pendingPick).toEqual(stale.pendingPick);
+                expect(s.pendingPrompt).toEqual(stale.pendingPrompt);
+                expect(s.state.state).toBe(live);
+            }
+        });
 
         it("clears stale run-output when switching to a different spec", () => {
             useStore.setState({
@@ -222,12 +265,13 @@ describe("store", () => {
             expect(s.state.currentSpec).toBeUndefined();
         });
 
-        it("preserves agent-session-scoped state when the node changes within the same spec", () => {
-            // Chat history, agent thinking flag, and pending agent requests
-            // (diff/pick/prompt) belong to the live agent session, not to
-            // any particular grep. Re-greping shouldn't blow away an
-            // unanswered diff modal or a chat the user is mid-conversation
-            // with.
+        it("clears agent-session-scoped state when the node changes within the same spec", () => {
+            // Every call site of selectSuite is reached after the agent
+            // session has been torn down (state already idle/done, or
+            // post-cancel from the suite-switch dialog). So the chat,
+            // thinking flag, and pending diff/pick/prompt left over from
+            // the prior run are stale UI under the new selection — drop
+            // them just like we do when the spec itself changes.
             useStore.setState({
                 ...stale,
                 selectedSpec: "test/old.spec.js",
@@ -240,12 +284,14 @@ describe("store", () => {
             );
 
             const s = useStore.getState();
-            expect(s.chatMessages).toEqual(stale.chatMessages);
-            expect(s.agentThinking).toBe(true);
-            expect(s.agentActivity).toBe("thinking about old spec");
-            expect(s.pendingDiff).toEqual(stale.pendingDiff);
-            expect(s.pendingPick).toEqual(stale.pendingPick);
-            expect(s.pendingPrompt).toEqual(stale.pendingPrompt);
+            expect(s.chatMessages).toEqual([]);
+            expect(s.agentThinking).toBe(false);
+            expect(s.agentActivity).toBe("");
+            expect(s.pendingDiff).toBeNull();
+            expect(s.pendingPick).toBeNull();
+            expect(s.pendingPrompt).toBeNull();
+            // Session-state field itself is preserved (idle/done/etc).
+            expect(s.state.state).toBe("done");
         });
 
         it("is a no-op when the same spec and node are re-selected", () => {
