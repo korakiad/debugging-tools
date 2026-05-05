@@ -3,7 +3,7 @@ import { useWebSocket } from "./hooks/useWebSocket";
 import { useStore } from "./state/store";
 import { TestTree, type TestSelection } from "./components/TestTree";
 import { EfDialog } from "./ui/EfDialog";
-import { SelectionPanel } from "./components/SelectionPanel";
+import { EmptyHero } from "./components/EmptyHero";
 import { CodePreview, languageFromPath, sliceSource } from "./components/CodePreview";
 import { mochaGrepFor } from "./lib/mochaGrep";
 import { findNode } from "./lib/findNode";
@@ -166,7 +166,7 @@ export default function App() {
                 disabled={switching}
             />
             <main className="flex-1 p-4 overflow-auto space-y-4">
-                <div className="flex items-center gap-3">
+                <div className="app-toolbar">
                     <EfButton
                         cta
                         disabled={!canStart || undefined}
@@ -187,17 +187,6 @@ export default function App() {
                         Stop
                     </EfButton>
                     {(state.state === "running" || state.state === "pre-running") && <Spinner />}
-                    <span>Status: {state.state}</span>
-                    {showPreRun && (
-                        <PreRunRow
-                            saved={savedPreRun}
-                            skip={skipPreRun}
-                            disabled={settingsDisabled}
-                            onSave={(preRun) => send({ type: "settings_update", preRun })}
-                            onSkipChange={setSkipPreRun}
-                            onDirtyChange={setPreRunDirty}
-                        />
-                    )}
                     {state.state === "paused" && (
                         <EfButton
                             cta
@@ -210,15 +199,27 @@ export default function App() {
                             Continue
                         </EfButton>
                     )}
+                    {showPreRun && (
+                        <PreRunRow
+                            saved={savedPreRun}
+                            skip={skipPreRun}
+                            disabled={settingsDisabled}
+                            onSave={(preRun) => send({ type: "settings_update", preRun })}
+                            onSkipChange={setSkipPreRun}
+                            onDirtyChange={setPreRunDirty}
+                        />
+                    )}
+                    <div className="app-toolbar-spacer" aria-hidden />
                     <ModeToggle
                         mode={mode}
                         disabled={settingsDisabled}
                         onChange={(m) => send({ type: "settings_update", mode: m })}
                     />
+                    <span className="app-toolbar-divider" aria-hidden />
                     <EfButton
                         transparent
                         aria-label="settings"
-                        style={{ marginLeft: "auto" }}
+                        className="app-toolbar-settings"
                         disabled={settingsDisabled || undefined}
                         onClick={() => setSettingsOpen(true)}
                     >
@@ -234,20 +235,44 @@ export default function App() {
                     }}
                     onClose={() => setSettingsOpen(false)}
                 />
-                <SelectionPanel
-                    spec={selectedSpec}
-                    node={selectedNode}
-                    onClear={selectedSpec ? () => requestSelectionChange({ spec: selectedSpec, node: null }) : undefined}
-                />
-                {selectedSpec && selectedNode && previewCode && (
-                    <CodePreview
-                        code={previewCode}
-                        startLine={matchedNode!.line}
-                        language={languageFromPath(selectedSpec)}
-                        title={`${selectedSpec}:${matchedNode!.line}`}
+                {!selectedSpec ? (
+                    <EmptyHero
+                        title="Pick a test to begin"
+                        subtitle="Choose a spec, describe, or it from the tree on the left to load its details and start a run."
+                        icon={
+                            <svg width="56" height="56" viewBox="0 0 56 56" fill="none" aria-hidden>
+                                <path
+                                    d="M26 14 L14 28 L26 42"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                />
+                                <line
+                                    x1="14"
+                                    y1="28"
+                                    x2="44"
+                                    y2="28"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                />
+                            </svg>
+                        }
                     />
+                ) : (
+                    <>
+                        {selectedNode && previewCode && (
+                            <CodePreview
+                                code={previewCode}
+                                startLine={matchedNode!.line}
+                                language={languageFromPath(selectedSpec)}
+                                title={`${selectedSpec}:${matchedNode!.line}`}
+                            />
+                        )}
+                        <LogPanel />
+                    </>
                 )}
-                <LogPanel />
                 {pendingSelection !== null && (
                     <EfDialog
                         opened
@@ -319,7 +344,6 @@ export default function App() {
                     />
                 )}
                 <ChatDrawer
-                    onSend={(prompt) => send({ type: "chat_send", prompt })}
                     onAbort={() => send({ type: "agent_abort" })}
                     pendingPrompt={prompt}
                     onPromptRespond={({ choice, freeText }) => {
@@ -331,14 +355,9 @@ export default function App() {
             </RightPanel>
             {pick && (
                 <PickerOverlay
-                    imageUrl={pick.imageUrl}
                     hint={pick.hint}
-                    onPick={(coords) => {
-                        send({ type: "pick_result", reqId: pick.reqId, selector: "", attrs: { coords } });
-                        useStore.setState({ pendingPick: null });
-                    }}
                     onCancel={() => {
-                        send({ type: "pick_result", reqId: pick.reqId, selector: "", attrs: { cancelled: true } });
+                        send({ type: "pick_cancel", reqId: pick.reqId });
                         useStore.setState({ pendingPick: null });
                     }}
                 />

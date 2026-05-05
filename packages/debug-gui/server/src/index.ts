@@ -2,6 +2,7 @@ import http from "http";
 import { WebSocketServer } from "ws";
 import path from "path";
 import express from "express";
+import { spawn } from "child_process";
 import { fileURLToPath } from "url";
 import { existsSync } from "fs";
 import { loadConfig, saveConfig } from "./config.js";
@@ -16,7 +17,7 @@ import { makeEditFileTool } from "./tools/editFile.js";
 import { makePickElementTool } from "./tools/pickElement.js";
 import { makeAskUserTool } from "./tools/askUser.js";
 import { drainResolvers, type PendingResolver } from "./resolvers.js";
-import { captureScreenshot, SCREENSHOT_DIR } from "./screenshot.js";
+import { SCREENSHOT_DIR } from "./screenshot.js";
 import { launchAppMode } from "./launcher.js";
 import { CopilotClient } from "@github/copilot-sdk";
 
@@ -52,6 +53,15 @@ export async function main(
     const editResolvers = new Map<string, PendingResolver<{ approved: boolean; reason?: string }>>();
     const pickResolvers = new Map<string, PendingResolver<Record<string, unknown>>>();
     const askResolvers = new Map<string, PendingResolver<{ choice: string | null; freeText: string | null }>>();
+    // PIDs of in-flight playwright-cli pick subprocesses, keyed by reqId.
+    // Lets pick_cancel kill the right child without leaking handles after
+    // natural completion.
+    const pickPids = new Map<string, number>();
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const pickScriptPath = path.resolve(
+        here,
+        "../../.claude/skills/identify-element/references/pick-element.js",
+    );
 
     const app = createApp({
         cwd,
@@ -70,7 +80,6 @@ export async function main(
 
     // Serve built web SPA from server/dist/../../web/dist in prod.
     // (In dev, vite serves :5555 and proxies API to backend.)
-    const here = path.dirname(fileURLToPath(import.meta.url));
     const webDist = path.resolve(here, "../../web/dist");
     if (existsSync(webDist)) {
         app.use(express.static(webDist));
@@ -115,18 +124,53 @@ export async function main(
             },
         }),
         makePickElementTool({
-            onPick: async (hint) => {
+            onPick: (hint) => {
+                // Spawn playwright-cli's pick-element script against the test
+                // runner's CDP port. The script injects hover-highlight + click
+                // handlers into the *test* browser (not debug-gui's own UI) and
+                // blocks until QA clicks. Stdout is JSON with DOM attributes +
+                // frame chain — exactly what the agent needs to build a selector.
                 const reqId = Math.random().toString(36).slice(2);
-                let imageUrl = "";
-                try {
-                    const shot = await captureScreenshot(config.cdp.port);
-                    imageUrl = `/api/screenshot/${encodeURIComponent(shot.id)}`;
-                } catch {
-                    // screenshot failure is non-fatal — the picker will still render a placeholder
-                }
-                return new Promise((resolve, reject) => {
+                hub.broadcast({ type: "pick", reqId, hint });
+                return new Promise<Record<string, unknown>>((resolve, reject) => {
                     pickResolvers.set(reqId, { resolve, reject });
-                    hub.broadcast({ type: "pick", reqId, imageUrl, hint });
+                    const child = spawn(
+                        "npx",
+                        ["playwright-cli", "--raw", "run-code", "--filename", pickScriptPath],
+                        {
+                            env: { ...process.env, PLAYWRIGHT_CDP_PORT: String(config.cdp.port) },
+                            shell: true,
+                        },
+                    );
+                    if (child.pid) pickPids.set(reqId, child.pid);
+                    let stdout = "";
+                    let stderr = "";
+                    child.stdout?.on("data", (b) => { stdout += b.toString(); });
+                    child.stderr?.on("data", (b) => { stderr += b.toString(); });
+                    child.on("exit", (code) => {
+                        pickPids.delete(reqId);
+                        const r = pickResolvers.get(reqId);
+                        if (!r) return; // already drained (cancel/abort)
+                        pickResolvers.delete(reqId);
+                        hub.broadcast({ type: "pick_done", reqId });
+                        if (code !== 0) {
+                            r.reject(new Error(`pick-element exited ${code}: ${stderr.trim() || stdout.trim()}`));
+                            return;
+                        }
+                        try {
+                            r.resolve(JSON.parse(stdout));
+                        } catch (e: any) {
+                            r.reject(new Error(`pick-element stdout not JSON: ${e?.message ?? e}`));
+                        }
+                    });
+                    child.on("error", (e) => {
+                        pickPids.delete(reqId);
+                        const r = pickResolvers.get(reqId);
+                        if (!r) return;
+                        pickResolvers.delete(reqId);
+                        hub.broadcast({ type: "pick_done", reqId });
+                        r.reject(e);
+                    });
                 });
             },
         }),
@@ -247,14 +291,17 @@ export async function main(
                         const f = snap.currentFailure;
                         const manualPreamble =
                             config.agent.mode === "manual"
-                                ? `You are in MANUAL mode. After each CDP/playwright-cli inspection, ` +
-                                  `call ask_user with a two-line summary (Hypothesis line "ผมคิดว่า ` +
-                                  `[root cause] เพราะ [evidence]" + Invitation line asking QA for ` +
-                                  `context you can't see) and 2-3 suggested next steps as options. ` +
-                                  `allowFreeText: true is mandatory. Option ids that apply a fix MUST ` +
-                                  `start with 'apply_'. Do NOT call edit_file until QA chooses an ` +
-                                  `apply_* option. If QA chooses apply_* AND adds new context in ` +
-                                  `freeText, do NOT apply — acknowledge, re-investigate, and re-ask.\n\n`
+                                ? `You are in MANUAL mode. Follow the walkthrough SKILL "Manual mode ` +
+                                  `contract" exactly: your FIRST action for any element-related failure ` +
+                                  `is to call ask_user with options that include a pick_* id (e.g. ` +
+                                  `pick_login_button) — do NOT call pick_element or playwright-cli ` +
+                                  `directly until QA chooses an option. The summary must be two lines ` +
+                                  `(Hypothesis "ผมคิดว่า [root cause] เพราะ [evidence]" + Invitation ` +
+                                  `asking for context you can't see). allowFreeText: true is mandatory. ` +
+                                  `When QA picks a pick_* option, then call pick_element. When QA ` +
+                                  `chooses apply_*, call edit_file. If QA chooses apply_* AND adds ` +
+                                  `new-context freeText, do NOT apply — acknowledge, re-investigate, ` +
+                                  `and re-ask.\n\n`
                                 : "";
                         await agentSession!.sendAndWait(
                             {
@@ -267,16 +314,10 @@ export async function main(
                                     `  file:  ${f.file}\n` +
                                     `  error: ${f.error}\n` +
                                     `  stack:\n${f.stack}\n\n` +
-                                    `Follow the walkthrough SKILL. For ANY element-related failure ` +
-                                    `(wrong selector, element not found, not interactable, wrong element ` +
-                                    `clicked, assertion on element text/value), call \`pick_element\` ` +
-                                    `FIRST with a short hint — QA visually identifying the element is ` +
-                                    `more reliable than guessing from a DOM snapshot, regardless of app ` +
-                                    `size. Use playwright-cli (CDP port ${config.cdp.port}) only for ` +
-                                    `non-element issues (timing, navigation, console errors) or to ` +
-                                    `confirm details after picking. Then call edit_file with the proposed ` +
-                                    `change. The QA operator will click Continue in the GUI to resume the ` +
-                                    `test runner.`,
+                                    `Follow the walkthrough SKILL. For non-element investigation ` +
+                                    `(timing, navigation, console errors) use playwright-cli at CDP ` +
+                                    `port ${config.cdp.port}. The QA operator will click Continue ` +
+                                    `in the GUI to resume the test runner once a fix is applied.`,
                             },
                             config.agent.idleTimeoutMs,
                         );
@@ -307,11 +348,17 @@ export async function main(
                 editResolvers.delete(cmd.reqId);
             }
         }
-        if (cmd.type === "pick_result") {
+        if (cmd.type === "pick_cancel") {
+            const pid = pickPids.get(cmd.reqId);
+            if (pid) {
+                try { await killTree(pid); } catch { /* already gone */ }
+                pickPids.delete(cmd.reqId);
+            }
             const resolver = pickResolvers.get(cmd.reqId);
             if (resolver) {
-                resolver.resolve(cmd.attrs);
                 pickResolvers.delete(cmd.reqId);
+                hub.broadcast({ type: "pick_done", reqId: cmd.reqId });
+                resolver.reject(new Error("pick cancelled by QA"));
             }
         }
         if (cmd.type === "prompt_response") {

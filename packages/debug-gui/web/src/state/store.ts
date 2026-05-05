@@ -32,7 +32,6 @@ export interface Diff {
 }
 export interface Pick {
     reqId: string;
-    imageUrl: string;
     hint: string;
 }
 export interface Prompt {
@@ -120,10 +119,12 @@ interface Store {
     //   * Anything else (spec changes, OR same spec / different node) →
     //     drop everything tied to the previous run: mochaLog,
     //     mochaExitCode, runStartedAt, currentFailure, currentSpec,
-    //     chatMessages, agentThinking, agentActivity, pendingDiff,
-    //     pendingPick, pendingPrompt. Whatever was on screen belonged
-    //     to the prior (spec, grep) tuple; under the new selection it
-    //     is stale.
+    //     pausedAt, chatMessages, agentThinking, agentActivity,
+    //     pendingDiff, pendingPick, pendingPrompt. Session state itself
+    //     resets to "idle" so the StatusHeader doesn't carry "DONE"
+    //     onto a suite that hasn't been run yet. Whatever was on screen
+    //     belonged to the prior (spec, grep) tuple; under the new
+    //     selection it is stale.
     //
     // Why one rule covers both cases: every call site of selectSuite in
     // App.tsx is reached only when state is "idle"/"done" (or about to
@@ -208,7 +209,11 @@ export const useStore = create<Store>((set) => ({
                 return { pendingDiff: { reqId: e.reqId, file: e.file, oldCode: e.oldCode, newCode: e.newCode, receivedAt: Date.now() } };
             }
             if (e.type === "pick") {
-                return { pendingPick: { reqId: e.reqId, imageUrl: e.imageUrl, hint: e.hint } };
+                return { pendingPick: { reqId: e.reqId, hint: e.hint } };
+            }
+            if (e.type === "pick_done") {
+                if (s.pendingPick?.reqId === e.reqId) return { pendingPick: null };
+                return {};
             }
             if (e.type === "prompt") {
                 return {
@@ -298,7 +303,11 @@ export const useStore = create<Store>((set) => ({
                 pendingDiff: null,
                 pendingPick: null,
                 pendingPrompt: null,
-                state: { state: s.state.state },
+                // Reset session state to idle so the StatusHeader doesn't
+                // carry "DONE" onto a suite that hasn't been run yet. The
+                // live-guard above already short-circuits running/paused,
+                // so the only states that reach here are idle/done.
+                state: { state: "idle" },
             };
         }),
 }));

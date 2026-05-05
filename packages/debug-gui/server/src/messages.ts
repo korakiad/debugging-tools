@@ -12,7 +12,8 @@ export type ServerEvent =
     | { type: "chat_delta"; text: string }
     | { type: "chat_final"; content: string }
     | { type: "diff"; reqId: string; file: string; oldCode: string; newCode: string }
-    | { type: "pick"; reqId: string; imageUrl: string; hint: string }
+    | { type: "pick"; reqId: string; hint: string }
+    | { type: "pick_done"; reqId: string }
     | {
         type: "prompt";
         reqId: string;
@@ -39,7 +40,7 @@ export type ClientCommand =
     | { type: "chat_send"; prompt: string }
     | { type: "agent_abort" }
     | { type: "diff_decision"; reqId: string; action: "approved" | "rejected"; reason?: string }
-    | { type: "pick_result"; reqId: string; selector: string; attrs: Record<string, unknown> }
+    | { type: "pick_cancel"; reqId: string }
     | {
         type: "prompt_response";
         reqId: string;

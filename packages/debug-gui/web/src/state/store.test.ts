@@ -164,7 +164,7 @@ describe("store", () => {
             agentThinking: true,
             agentActivity: "thinking about old spec",
             pendingDiff: { reqId: "d1", file: "old.js", oldCode: "a", newCode: "b", receivedAt: 0 },
-            pendingPick: { reqId: "p1", imageUrl: "img", hint: "hint" },
+            pendingPick: { reqId: "p1", hint: "hint" },
             pendingPrompt: { reqId: "q1", summary: "s", options: [], allowFreeText: false },
             state: {
                 state: "done" as const,
@@ -220,8 +220,9 @@ describe("store", () => {
             expect(s.pendingPrompt).toBeNull();
             expect(s.state.currentFailure).toBeUndefined();
             expect(s.state.currentSpec).toBeUndefined();
-            // Session-state field itself is preserved (idle/done/etc).
-            expect(s.state.state).toBe("done");
+            // Session-state resets to idle so the StatusHeader doesn't
+            // carry "DONE" onto the new (un-run) suite.
+            expect(s.state.state).toBe("idle");
         });
 
         it("clears stale state when switching from no-selection to a spec", () => {
@@ -290,8 +291,9 @@ describe("store", () => {
             expect(s.pendingDiff).toBeNull();
             expect(s.pendingPick).toBeNull();
             expect(s.pendingPrompt).toBeNull();
-            // Session-state field itself is preserved (idle/done/etc).
-            expect(s.state.state).toBe("done");
+            // Session-state resets to idle on any actual selection change,
+            // even within the same spec.
+            expect(s.state.state).toBe("idle");
         });
 
         it("is a no-op when the same spec and node are re-selected", () => {
