@@ -288,6 +288,7 @@ Never leave QA hanging with "I don't know."
 When the orchestrator's prompt begins with "You are in MANUAL mode", the rules are:
 
 1. **Element-related failure → first action is to offer `pick_element`.** Before any snapshot/eval, call `ask_user` with options that include picking the element (e.g. `pick_login_button`). Only investigate via playwright-cli if QA declines or chooses an investigation option.
+   For this first ask_user (no CDP inspection has happened yet), use the raw error string itself as evidence in the Hypothesis line — e.g. "ผมคิดว่า selector ผิด เพราะ error บอกว่า `no such element`".
 2. After **every** CDP / playwright-cli inspection step (snapshot, eval, click, screenshot), call `ask_user` with:
    - a `summary` formatted as **two lines**:
      - **Hypothesis line** — "ผมคิดว่า [root cause] เพราะ [evidence จาก CDP / pick / error]"
@@ -300,10 +301,14 @@ When the orchestrator's prompt begins with "You are in MANUAL mode", the rules a
    - any other snake_case — investigation step (e.g. `investigate_modal`)
 4. Do NOT call `edit_file` until QA chooses an option whose id starts with `apply_`.
 5. After QA chooses an `apply_*` option, call `edit_file` with the corresponding diff. The QA will then approve / reject the diff in the GUI.
+   **Exception:** if QA chooses an `apply_*` option AND provides `freeText` that adds new context not already in your hypothesis, item 6 takes precedence — do NOT call `edit_file`. Acknowledge the new context, re-investigate if needed, and call `ask_user` again with a revised hypothesis.
 6. **Hypothesis revision rule** — when QA's `freeText` response contains information not already in your hypothesis (e.g. "the cookie modal needs to close first", "this only fails after login"):
    - Acknowledge the new context explicitly in your next message ("Got it — there's a cookie modal first")
    - **Re-investigate** if the new context invalidates prior CDP findings (e.g. snapshot a different selector, check a different page state)
    - Restate the **revised hypothesis** before calling `ask_user` again or proposing a fix
    - Do NOT silently fold new context into an existing fix proposal — QA needs to see that you understood what they told you
 
-Auto mode skips the ask_user gating — but the `pick_element`-first preference for element issues still applies. Call `pick_element` for element-related failures, then `edit_file` directly.
+Auto mode skips items 1-6 (no `ask_user`, no QA dialog). Only these rules still apply:
+- The `pick_element`-first preference for element-related failures — call `pick_element`, then `edit_file` directly.
+- The "NEVER guess selectors from training data" rule.
+- The "ALWAYS use the project's wrapper API" rule.
