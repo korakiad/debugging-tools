@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
 export const DEFAULT_TS_BLOCK = {
     lspServers: {
@@ -111,4 +113,61 @@ function trySpawn(cmd: string, args: string[], timeoutMs: number): Promise<Probe
             settle({ kind: "broken", stderrTail: stderr || `exited with code ${code}` });
         });
     });
+}
+
+export interface LspInitResult {
+    status: "ok" | "missing" | "broken" | "config-invalid" | "fs-error";
+    message?: string;
+    installCmd?: string;
+    stderrTail?: string;
+}
+
+export interface EnsureLspConfigOpts {
+    probe?: (cmd: string, args: string[], timeoutMs: number) => Promise<ProbeResult>;
+}
+
+const INSTALL_CMD = "npm install -g typescript-language-server";
+
+export async function ensureLspConfig(cwd: string, opts: EnsureLspConfigOpts = {}): Promise<LspInitResult> {
+    const probe = opts.probe ?? probeBinary;
+    const probed = await probe("typescript-language-server", ["--version"], 1500);
+
+    if (probed.kind === "missing") {
+        return { status: "missing", installCmd: INSTALL_CMD };
+    }
+    if (probed.kind === "broken") {
+        return { status: "broken", installCmd: INSTALL_CMD, stderrTail: probed.stderrTail };
+    }
+
+    const configDir = join(cwd, ".github");
+    const configPath = join(configDir, "lsp.json");
+
+    let existing: unknown = null;
+    try {
+        const raw = await readFile(configPath, "utf8");
+        try {
+            existing = JSON.parse(raw);
+        } catch {
+            return {
+                status: "config-invalid",
+                message: `${configPath} is not valid JSON; left untouched`,
+            };
+        }
+    } catch (err: unknown) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+            return { status: "fs-error", message: (err as Error).message };
+        }
+        // File does not exist yet — fall through with existing=null.
+    }
+
+    const merged = mergeLspConfig(existing);
+    if (!merged.changed) return { status: "ok" };
+
+    try {
+        await mkdir(configDir, { recursive: true });
+        await writeFile(configPath, JSON.stringify(merged.next, null, 2) + "\n", "utf8");
+        return { status: "ok" };
+    } catch (err) {
+        return { status: "fs-error", message: (err as Error).message };
+    }
 }
