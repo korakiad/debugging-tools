@@ -1,7 +1,7 @@
 # Debug GUI — Log Panel Redesign
 
 **Date:** 2026-05-04
-**Status:** Approved (brainstorming)
+**Status:** Implemented (with deltas — see end)
 **Owner:** QA tooling
 **Branch:** `feature/debug-gui-log-panel`
 **Worktree:** `.worktrees/debug-gui-log-panel/`
@@ -277,3 +277,36 @@ the old component (the test would render dead UI).
   renderer; LogPanel composes the existing component.
 - **Don't import from the server bundle**. The web bundle stays independent
   (mirror types where needed, as is the existing convention).
+
+## Implementation deltas (2026-05-05)
+
+Recorded post-merge so the doc reflects what was actually shipped, not
+just the original intent.
+
+- **`StatsStrip` not built.** All six metric cells (PASSED / FAILED /
+  HEALED / AVG CONF / TIME SAVED / HEALING TREND 7D) were unwired
+  placeholders; deferred until a real data source exists for any of them.
+  PASSED / FAILED show up in the `StatusHeader` STEP counter instead.
+- **`MochaLogPanel.tsx` deleted.** Plan said "left untouched"; in
+  practice the dead component + its test caused noise so both were
+  removed when `App.tsx` switched to `<LogPanel />`. No other consumers.
+- **`DiffView` reuse skipped for `SelfHealBlock`.** The full Shiki-backed
+  `DiffView` was too heavy for an inline row — `SelfHealBlock` renders a
+  minimal two-line `+/-` block with hard-coded colours. If/when QA needs
+  syntax-highlighted self-heal diffs, re-evaluate then.
+- **Synthetic-row timestamps moved into the store.** Plan didn't address
+  this; `Date.now()` inside `deriveLog` proved fragile under re-renders.
+  Reducer now stamps `Snapshot.pausedAt` and `Diff.receivedAt` so
+  `deriveLog` is pure of wall-clock reads.
+- **Log row React keys.** Source line gets a monotonic `seq` at push time
+  so existing rows survive the buffer's `slice(-500)` without React
+  unmount/remount churn. Plan called the id "stable index for React key"
+  but the original implementation used the array index.
+- **`LogTable` ARIA roles dropped.** Maintaining a valid `role="table"`
+  tree alongside the `SELF-HEAL` block (which would need its own
+  rowgroup) was more cost than benefit; the table is now a labelled
+  `<section>` with grid-driven CSS.
+- **`SelfHealBlock` plain `<section>` instead of `EfPanel`.** Original
+  used `EfPanel` and needed seven `!important` rules to override
+  shadow-DOM defaults. Replaced with a plain `<section>`; styles no
+  longer fight the wrapper.
