@@ -12,6 +12,7 @@ import { DiffView } from "./components/DiffView";
 import { PickerOverlay } from "./components/PickerOverlay";
 import { ModeToggle, type AgentMode } from "./components/ModeToggle";
 import { ChatDrawer } from "./components/ChatDrawer";
+import { LspWarningModal } from "./components/LspWarningModal";
 import { RightPanel } from "./components/RightPanel";
 import { LogPanel } from "./components/LogPanel";
 import { Spinner } from "./components/Spinner";
@@ -37,6 +38,8 @@ export default function App() {
     const diff = useStore((s) => s.pendingDiff);
     const pick = useStore((s) => s.pendingPick);
     const prompt = useStore((s) => s.pendingPrompt);
+    const lspWarning = useStore((s) => s.lspWarning);
+    const dismissLspWarning = useStore((s) => s.dismissLspWarning);
     const config = useStore((s) => s.config) as { preRun?: string; agent?: { mode?: AgentMode } } & DebugGuiConfigShape;
     const savedPreRun = config.preRun ?? "";
     const mode: AgentMode = config.agent?.mode === "manual" ? "manual" : "auto";
@@ -362,6 +365,7 @@ export default function App() {
                     }}
                 />
             )}
+            <LspWarningModal warning={lspWarning} onDismiss={dismissLspWarning} />
         </div>
     );
 }
