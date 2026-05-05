@@ -47,6 +47,16 @@ export interface LspWarning {
     stderrTail?: string;
 }
 
+// Side-band INFO/WARN message surfaced in LogPanel. Currently driven by the
+// server when an `edit_file` is approved during pause: Mocha's per-process
+// require cache means the just-written fix won't take effect on the in-flight
+// retry, so we tell QA to click Run again rather than Continue. Cleared on
+// new run start (status → running from idle/done) and on user dismiss.
+export interface Notice {
+    kind: "info" | "warning" | "error";
+    message: string;
+}
+
 export interface ServerEvent {
     type: string;
     [k: string]: any;
@@ -119,6 +129,8 @@ interface Store {
     agentActivity: string;
     lspWarning: LspWarning | null;
     dismissLspWarning: () => void;
+    notice: Notice | null;
+    dismissNotice: () => void;
     applyEvent: (e: ServerEvent) => void;
     // Switch the active spec/node selection.
     //
@@ -168,6 +180,8 @@ export const useStore = create<Store>((set) => ({
     agentActivity: "",
     lspWarning: null,
     dismissLspWarning: () => set({ lspWarning: null }),
+    notice: null,
+    dismissNotice: () => set({ notice: null }),
     applyEvent: (e) =>
         set((s) => {
             if (e.type === "init") {
@@ -176,6 +190,7 @@ export const useStore = create<Store>((set) => ({
                     mochaLog: [], mochaExitCode: undefined,
                     runStartedAt: null,
                     agentThinking: false, agentActivity: "",
+                    notice: null,
                 };
             }
             if (e.type === "config_updated") {
@@ -210,7 +225,11 @@ export const useStore = create<Store>((set) => ({
                         // pendingDiff/Pick/Prompt and chatMessages may
                         // still belong to the in-flight session, and
                         // mochaLog/runStartedAt anchor the same run.
-                        return { state: { ...s.state, state: e.state } };
+                        // currentFailure/pausedAt only describe the
+                        // paused state we just left — drop them so the
+                        // FailureCard and synthetic FAIL log row don't
+                        // linger across Continue.
+                        return { state: { state: e.state, currentSpec: s.state.currentSpec } };
                     }
                     // Fresh run starting from idle/done. The prior
                     // session's resolvers were either resolved by QA or
@@ -228,12 +247,18 @@ export const useStore = create<Store>((set) => ({
                         pendingDiff: null,
                         pendingPick: null,
                         pendingPrompt: null,
+                        notice: null,
                     };
                 }
-                // Keep `runStartedAt` on idle/done so deriveLog can still
-                // anchor row times for rows captured during the run; the
-                // next run reset the anchor in the running branch above.
-                return { state: { ...s.state, state: e.state } };
+                // idle/done: drop currentFailure/pausedAt so a Stop click
+                // while paused (or a natural finish landing on a paused
+                // leaf) doesn't leave the FailureCard / synthetic FAIL
+                // log row visible. `runStartedAt` is a top-level field
+                // (not part of state), preserved across this transition
+                // so deriveLog can still anchor row times for log lines
+                // captured during the run; the next run resets the
+                // anchor in the running branch above.
+                return { state: { state: e.state, currentSpec: s.state.currentSpec } };
             }
             if (e.type === "paused") {
                 return { state: { ...s.state, state: "paused", currentFailure: e.failure, pausedAt: Date.now() } };
@@ -300,6 +325,14 @@ export const useStore = create<Store>((set) => ({
             if (e.type === "lsp/warning") {
                 return { lspWarning: e.warning as LspWarning };
             }
+            if (e.type === "notice") {
+                // Latest notice replaces the previous one (in case QA approved
+                // a second edit before dismissing the first). Cleared on
+                // dismissNotice() and on fresh-run status transitions above.
+                const kind: Notice["kind"] =
+                    e.kind === "warning" || e.kind === "error" ? e.kind : "info";
+                return { notice: { kind, message: String(e.message ?? "") } };
+            }
             return {};
         }),
     selectSuite: (spec, node) =>
@@ -339,6 +372,7 @@ export const useStore = create<Store>((set) => ({
                 pendingDiff: null,
                 pendingPick: null,
                 pendingPrompt: null,
+                notice: null,
                 // Reset session state to idle so the StatusHeader doesn't
                 // carry "DONE" onto a suite that hasn't been run yet. The
                 // live-guard above already short-circuits running/paused,

@@ -31,6 +31,11 @@ export type ServerEvent =
     | { type: "config_updated"; config: unknown }
     | { type: "suites_updated"; suites: unknown[] }
     | { type: "lsp/warning"; warning: LspWarning }
+    // Side-band INFO/WARN/ERROR surfaced in the UI's LogPanel notice slot.
+    // Currently emitted when an `edit_file` is approved during pause: the
+    // fix is now on disk but Mocha's per-process require cache means an
+    // in-flight retry will hit the same error, so we tell QA to click Run.
+    | { type: "notice"; kind: "info" | "warning" | "error"; message: string }
     | { type: "error"; message: string };
 
 export type ClientCommand =

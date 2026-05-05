@@ -20,6 +20,7 @@ describe("store", () => {
             agentThinking: false,
             agentActivity: "",
             lspWarning: null,
+            notice: null,
         });
     });
 
@@ -54,6 +55,68 @@ describe("store", () => {
         useStore.getState().applyEvent({ type: "status", state: "done" });
         expect(useStore.getState().state.state).toBe("done");
         expect(useStore.getState().runStartedAt).toBe(1_700_000_000_000);
+    });
+
+    describe("paused → non-paused status drops failure data", () => {
+        // QA-reported bug: clicking Stop while paused left the FailureCard
+        // and the synthetic FAIL row in LogPanel visible. Root cause was
+        // the status reducer spreading `...s.state` on the way to idle/
+        // done/running, which preserved currentFailure + pausedAt from
+        // the paused snapshot. The fix is in the status reducer; these
+        // tests pin the invariant: any non-paused status must clear the
+        // failure data, regardless of which leg was hit.
+        const pausedSnap = {
+            state: {
+                state: "paused" as const,
+                currentSpec: "test/login.spec.js",
+                currentFailure: { test: "should enter password", file: "x", error: "boom", stack: "" },
+                pausedAt: 12345,
+            },
+        };
+
+        for (const next of ["idle", "done"] as const) {
+            it(`paused → ${next} clears currentFailure + pausedAt (Stop click / natural finish)`, () => {
+                useStore.setState(pausedSnap);
+                useStore.getState().applyEvent({ type: "status", state: next });
+                const s = useStore.getState();
+                expect(s.state.state).toBe(next);
+                expect(s.state.currentFailure).toBeUndefined();
+                expect(s.state.pausedAt).toBeUndefined();
+                // currentSpec is preserved so deriveLog / breadcrumb still
+                // anchor on the spec that was running.
+                expect(s.state.currentSpec).toBe("test/login.spec.js");
+            });
+        }
+
+        it("paused → running clears currentFailure + pausedAt (Continue resume)", () => {
+            useStore.setState(pausedSnap);
+            useStore.getState().applyEvent({ type: "status", state: "running" });
+            const s = useStore.getState();
+            expect(s.state.state).toBe("running");
+            expect(s.state.currentFailure).toBeUndefined();
+            expect(s.state.pausedAt).toBeUndefined();
+            expect(s.state.currentSpec).toBe("test/login.spec.js");
+        });
+
+        it("paused → running on the same run preserves agent-session state", () => {
+            // Resume should NOT wipe chatMessages / pendingDiff / pendingPick
+            // / pendingPrompt — those still belong to the in-flight session
+            // the agent opened during pause. mochaLog/runStartedAt also
+            // anchor the same run and must survive.
+            useStore.setState({
+                ...pausedSnap,
+                chatMessages: [{ role: "assistant", content: "stale-selector hint" }],
+                pendingDiff: { reqId: "d1", file: "old.js", oldCode: "a", newCode: "b", receivedAt: 0 },
+                mochaLog: [{ stream: "stdout", text: "  ✓ a\n", receivedAt: 0, seq: 1 }],
+                runStartedAt: 1_700_000_000_000,
+            });
+            useStore.getState().applyEvent({ type: "status", state: "running" });
+            const s = useStore.getState();
+            expect(s.chatMessages).toHaveLength(1);
+            expect(s.pendingDiff?.reqId).toBe("d1");
+            expect(s.mochaLog).toHaveLength(1);
+            expect(s.runStartedAt).toBe(1_700_000_000_000);
+        });
     });
 
     it("status running resets runStartedAt to 'now' on each new run", () => {
@@ -132,6 +195,87 @@ describe("store", () => {
             failure: { test: "t", file: "a.spec.js", error: "e", stack: "" },
         });
         expect(useStore.getState().state.currentFailure?.test).toBe("t");
+    });
+
+    describe("notice lifecycle", () => {
+        // The server emits `notice` after an approved edit during pause to
+        // tell QA that Continue won't pick up the fix (Mocha's per-process
+        // require cache holds the page-object instance from suite-load).
+        // The store needs to surface it, replace it on subsequent edits,
+        // let QA dismiss it, and drop it cleanly on a fresh run / spec
+        // switch — these tests pin those invariants.
+
+        it("apply 'notice' event surfaces the message", () => {
+            useStore.getState().applyEvent({
+                type: "notice",
+                kind: "info",
+                message: "Click Run to re-execute the suite.",
+            });
+            const notice = useStore.getState().notice;
+            expect(notice?.kind).toBe("info");
+            expect(notice?.message).toMatch(/click run/i);
+        });
+
+        it("'notice' event with unknown kind falls back to 'info'", () => {
+            // Defensive: the wire type is the right shape but a future
+            // server might send a kind we don't render. Don't crash, treat
+            // it as info.
+            useStore.getState().applyEvent({
+                type: "notice",
+                kind: "wat" as any,
+                message: "x",
+            });
+            expect(useStore.getState().notice?.kind).toBe("info");
+        });
+
+        it("a second 'notice' replaces the first", () => {
+            useStore.getState().applyEvent({ type: "notice", kind: "info", message: "first" });
+            useStore.getState().applyEvent({ type: "notice", kind: "warning", message: "second" });
+            const n = useStore.getState().notice;
+            expect(n?.message).toBe("second");
+            expect(n?.kind).toBe("warning");
+        });
+
+        it("dismissNotice() clears the notice", () => {
+            useStore.setState({ notice: { kind: "info", message: "x" } });
+            useStore.getState().dismissNotice();
+            expect(useStore.getState().notice).toBeNull();
+        });
+
+        it("status idle/done → running clears the notice (fresh run)", () => {
+            // A fresh run with the fix on disk renders the notice irrelevant —
+            // the new process won't have the stale module cache. Drop it so
+            // it doesn't shout at QA after they've already done what it asked.
+            useStore.setState({
+                state: { state: "done" },
+                notice: { kind: "info", message: "click run" },
+            });
+            useStore.getState().applyEvent({ type: "status", state: "running" });
+            expect(useStore.getState().notice).toBeNull();
+        });
+
+        it("status running ← paused (Continue resume) preserves the notice", () => {
+            // QA may approve the edit AND click Continue anyway — the
+            // notice is then proven right (test fails again with same
+            // error). Don't yank it; keep it visible until QA either
+            // dismisses or starts a fresh run.
+            useStore.setState({
+                state: { state: "paused", currentSpec: "a.spec.js" },
+                notice: { kind: "info", message: "click run" },
+            });
+            useStore.getState().applyEvent({ type: "status", state: "running" });
+            expect(useStore.getState().notice?.message).toBe("click run");
+        });
+
+        it("selectSuite to a different spec clears the notice", () => {
+            useStore.setState({
+                selectedSpec: "a.spec.js",
+                state: { state: "idle" },
+                notice: { kind: "info", message: "x" },
+            });
+            useStore.getState().selectSuite("b.spec.js", null);
+            expect(useStore.getState().notice).toBeNull();
+        });
     });
 
     it("suites_updated clears selectedSpec and selectedNode when the spec disappears", () => {

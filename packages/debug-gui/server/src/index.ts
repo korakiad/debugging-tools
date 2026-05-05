@@ -391,6 +391,23 @@ export async function main(
                 resolver.resolve({ approved: cmd.action === "approved", reason: cmd.reason });
                 editResolvers.delete(cmd.reqId);
             }
+            // After QA approves a fix during pause, tell them not to click
+            // Continue: Mocha's per-process require cache holds the spec /
+            // page-object modules from suite-load, so the retry's in-flight
+            // it() body will still see the OLD selector (the agent's edit
+            // changed disk, not memory). Continue → same error; Run → fresh
+            // process → fix takes effect. See login.spec.js + login.page.js
+            // for the canonical case.
+            if (cmd.action === "approved") {
+                hub.broadcast({
+                    type: "notice",
+                    kind: "info",
+                    message:
+                        "Fix saved to disk. Mocha can't reload modules mid-run, " +
+                        "so clicking Continue will hit the same error. " +
+                        "Click Run to re-execute the suite with the fix applied.",
+                });
+            }
         }
         if (cmd.type === "pick_cancel") {
             const pid = pickPids.get(cmd.reqId);
@@ -442,6 +459,16 @@ export async function main(
             }
             await runner.kill();
             orch.stop();
+            // Reset hooker BEFORE session so an in-flight pollOnce can't
+            // re-mark the session as paused right after we reset it.
+            // pollOnce reads hooker.getStatus() then session.getState();
+            // if it observed status=paused before we ran, then sees
+            // session.state=idle after reset, the existing logic would
+            // call hooker.getPaused() + session.markPaused() — flipping
+            // the snapshot back to paused. Resetting hooker first makes
+            // hooker.getPaused() throw, which the orchestrator's
+            // setInterval catch swallows.
+            await hooker.reset();
             session.reset();
             drainResolvers(editResolvers);
             drainResolvers(pickResolvers);
