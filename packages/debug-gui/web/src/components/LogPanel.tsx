@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useStore, type SuiteNode } from "../state/store";
-import { EfPanel } from "../ui";
+import { EfPanel, EfNotification } from "../ui";
 import { findNode } from "../lib/findNode";
 import { StatusHeader } from "./log/StatusHeader";
 import { Breadcrumb } from "./log/Breadcrumb";
@@ -30,6 +30,8 @@ export function LogPanel() {
     const selectedNode = useStore((s) => s.selectedNode);
     const suiteTrees = useStore((s) => s.suiteTrees);
     const pendingDiff = useStore((s) => s.pendingDiff);
+    const notice = useStore((s) => s.notice);
+    const dismissNotice = useStore((s) => s.dismissNotice);
 
     const { rows, counts } = useMemo(
         () =>
@@ -88,6 +90,17 @@ export function LogPanel() {
 
     const stepCount = counts.passed + counts.failed;
 
+    // Empty-state copy is conditional on whether a run has actually
+    // started. Pre-run (`runStartedAt == null`) reads as a "ready" hero;
+    // any other case (mid-run with no output yet, or the brief gap right
+    // after switching specs) falls back to LogTable's default text.
+    const emptyMessage = rows.length === 0 && startedAt == null
+        ? {
+            title: "Ready to run",
+            subtitle: "Press Start in the toolbar above to execute the selected test.",
+        }
+        : undefined;
+
     return (
         <EfPanel spacing className="log-panel" style={{ display: "block" }}>
             <StatusHeader
@@ -96,6 +109,18 @@ export function LogPanel() {
                 step={stepCount}
                 total={plannedTotal}
             />
+            {notice && (
+                <EfNotification
+                    className="log-notice"
+                    data-kind={notice.kind}
+                    role="status"
+                    aria-live="polite"
+                    message={notice.message}
+                    warning={notice.kind === "warning"}
+                    error={notice.kind === "error"}
+                    onDismiss={dismissNotice}
+                />
+            )}
             <Breadcrumb
                 spec={selectedSpec}
                 suite={suiteCrumb}
@@ -106,6 +131,7 @@ export function LogPanel() {
             <LogTable
                 rows={rows}
                 truncated={truncated}
+                emptyMessage={emptyMessage}
                 onSelfHealRow={(row) =>
                     row.heal ? (
                         <SelfHealBlock

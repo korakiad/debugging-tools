@@ -24,7 +24,9 @@ export function PromptPanel({
 
     return (
         <div className="text-sm space-y-2">
-            <div className="font-bold">assistant:</div>
+            <span className="chat-drawer-badge" aria-label="Self-healing agent">
+                SELF-HEAL AGENT
+            </span>
             <div className="prompt-summary">{summary}</div>
             {options.length > 0 && (
                 <div className="flex flex-col gap-2 pt-1">

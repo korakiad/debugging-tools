@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { SessionState } from "../../state/store";
+import { EfAppstateBar } from "../../ui";
 import { formatTime } from "./deriveLog";
 
 interface StatusHeaderProps {
@@ -9,12 +10,12 @@ interface StatusHeaderProps {
     total: number;
 }
 
-const PILL: Record<SessionState, { label: string; tone: string }> = {
-    idle: { label: "IDLE", tone: "var(--ef-content-secondary-color, #8a96a4)" },
-    "pre-running": { label: "PRE-RUN", tone: "var(--ef-warning, #ffb74d)" },
-    running: { label: "RUNNING", tone: "var(--ef-success, #4caf50)" },
-    paused: { label: "PAUSED", tone: "var(--ef-warning, #ffb74d)" },
-    done: { label: "DONE", tone: "var(--ef-info, #4dd0e1)" },
+const STATE_LABEL: Record<SessionState, string> = {
+    idle: "IDLE",
+    "pre-running": "PRE-RUN",
+    running: "RUNNING",
+    paused: "PAUSED",
+    done: "DONE",
 };
 
 // 250ms tick is enough for "00:42.318"-style display. The clock only runs
@@ -39,23 +40,15 @@ function useElapsed(state: SessionState, startedAt: number | null): number {
 }
 
 export function StatusHeader({ state, startedAt, step, total }: StatusHeaderProps) {
-    const pill = PILL[state];
     const elapsed = useElapsed(state, startedAt);
     return (
-        <div className="log-status-header" role="status" aria-live="polite">
-            <div className="log-status-pill-group">
-                <span className="log-status-label">STATUS</span>
-                <span
-                    className="log-status-pill"
-                    style={{
-                        borderColor: pill.tone,
-                        color: pill.tone,
-                    }}
-                >
-                    <span className="log-status-pill-dot" style={{ background: pill.tone }} aria-hidden />
-                    {pill.label}
-                </span>
-            </div>
+        <EfAppstateBar
+            className="log-status"
+            data-session={state}
+            heading={STATE_LABEL[state]}
+            role="status"
+            aria-live="polite"
+        >
             <div className="log-status-meta">
                 <span className="log-status-label">ELAPSED</span>
                 <span className="log-status-value">{formatTime(elapsed)}</span>
@@ -68,6 +61,6 @@ export function StatusHeader({ state, startedAt, step, total }: StatusHeaderProp
                     {total > 0 ? total : "—"}
                 </span>
             </div>
-        </div>
+        </EfAppstateBar>
     );
 }

@@ -14,13 +14,13 @@ export function FailureCard({ failure }: { failure: Failure }) {
                 {failure.test}
             </div>
             <div className="text-sm opacity-70">{failure.file}</div>
-            <pre className="text-xs p-2 rounded whitespace-pre-wrap mt-2" style={{ background: "var(--ef-content-primary-background-color)" }}>
+            <pre className="text-xs p-2 whitespace-pre-wrap mt-2" style={{ background: "var(--ef-content-primary-background-color)" }}>
                 {failure.error}
             </pre>
             {failure.stack && (
                 <details className="mt-2">
                     <summary className="text-xs cursor-pointer">Stack trace</summary>
-                    <pre className="text-xs p-2 rounded mt-1" style={{ background: "var(--ef-content-primary-background-color)" }}>
+                    <pre className="text-xs p-2 mt-1" style={{ background: "var(--ef-content-primary-background-color)" }}>
                         {failure.stack}
                     </pre>
                 </details>

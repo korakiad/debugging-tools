@@ -20,22 +20,44 @@ function resetStore() {
         runStartedAt: null,
         agentThinking: false,
         agentActivity: "",
+        notice: null,
     });
 }
 
 describe("LogPanel", () => {
     beforeEach(resetStore);
 
-    it("renders the empty placeholder when there are no log lines", () => {
+    it("renders the 'Ready to run' hero before the first run has started", () => {
+        render(<LogPanel />);
+        // Pre-run empty state. LogPanel keys this off runStartedAt == null,
+        // so it surfaces whether or not a spec is selected.
+        expect(screen.getByRole("heading", { name: /ready to run/i })).toBeInTheDocument();
+        expect(screen.getByText(/press start in the toolbar above/i)).toBeInTheDocument();
+    });
+
+    it("falls back to the generic empty placeholder mid-run with no output yet", () => {
+        // runStartedAt is set (a run has begun) but no mocha lines have
+        // arrived yet — short-lived but real. The hero copy isn't right
+        // here, so LogTable falls back to its built-in default text.
+        useStore.setState({ runStartedAt: 1, state: { state: "running" } });
         render(<LogPanel />);
         expect(
             screen.getByText(/Run a test to see the live log here/i)
         ).toBeInTheDocument();
     });
 
-    it("shows the IDLE status pill when no run has started", () => {
+    it("shows the IDLE state in the status bar heading when no run has started", () => {
         render(<LogPanel />);
-        expect(screen.getByText("IDLE")).toBeInTheDocument();
+        // ef-appstate-bar's `heading` is a non-reflected property and the
+        // text renders inside shadow DOM (part=heading), so getByText
+        // can't reach it and getAttribute is null. Assert on the JS
+        // property + the data-session attribute that styles the ribbon.
+        const bar = document.querySelector("ef-appstate-bar.log-status") as
+            | (HTMLElement & { heading?: string })
+            | null;
+        expect(bar).not.toBeNull();
+        expect(bar?.heading).toBe("IDLE");
+        expect(bar?.getAttribute("data-session")).toBe("idle");
     });
 
     it("renders a row per mocha log line with the correct level badge", () => {
@@ -174,6 +196,27 @@ describe("LogPanel", () => {
         } finally {
             vi.useRealTimers();
         }
+    });
+
+    it("renders an info notice between StatusHeader and the breadcrumb", () => {
+        // After an approved edit during pause the server broadcasts a
+        // `notice`. LogPanel surfaces it via ef-notification so QA can't
+        // miss the "click Run, not Continue" guidance.
+        useStore.setState({
+            notice: {
+                kind: "info",
+                message: "Fix saved to disk. Click Run to re-execute the suite.",
+            },
+        });
+        render(<LogPanel />);
+        const el = document.querySelector("ef-notification.log-notice") as
+            | (HTMLElement & { message?: string })
+            | null;
+        expect(el).not.toBeNull();
+        // ef-notification stores the message as a JS property (rendered into
+        // shadow DOM), same pattern as StatusHeader's heading assertion.
+        expect(el?.message).toMatch(/click run/i);
+        expect(el?.getAttribute("data-kind")).toBe("info");
     });
 
     it("renders a SELF-HEAL block when a diff is pending", () => {

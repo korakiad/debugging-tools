@@ -20,7 +20,7 @@ export interface CodePreviewProps {
 // they would in any modern dark theme.
 export function CodePreview({ code, startLine, language = "tsx", title }: CodePreviewProps) {
     return (
-        <div className="border border-gray-700 rounded overflow-hidden bg-[#1e1e1e]">
+        <div className="border border-gray-700 overflow-hidden bg-[#1e1e1e]">
             {title && (
                 <div className="text-xs px-3 py-1.5 border-b border-gray-700 bg-neutral-900/60 opacity-80 font-mono">
                     {title}

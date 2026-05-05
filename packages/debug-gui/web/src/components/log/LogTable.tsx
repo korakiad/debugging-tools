@@ -6,9 +6,12 @@ interface LogTableProps {
     rows: LogRowData[];
     truncated?: boolean;
     onSelfHealRow?: (row: LogRowData) => React.ReactNode;
+    // Two-line empty-state copy. LogPanel decides the variant (e.g.
+    // "Ready to run" before the first run vs. a generic fallback).
+    emptyMessage?: { title: string; subtitle?: string };
 }
 
-export function LogTable({ rows, truncated, onSelfHealRow }: LogTableProps) {
+export function LogTable({ rows, truncated, onSelfHealRow, emptyMessage }: LogTableProps) {
     const ref = useRef<HTMLDivElement | null>(null);
 
     // Auto-scroll-to-bottom on new rows. We only follow if the user is
@@ -24,9 +27,13 @@ export function LogTable({ rows, truncated, onSelfHealRow }: LogTableProps) {
     }, [rows.length]);
 
     if (rows.length === 0) {
+        const title = emptyMessage?.title ?? "Run a test to see the live log here.";
         return (
             <div className="log-table-empty" role="status">
-                Run a test to see the live log here.
+                <h3 className="log-table-empty-title">{title}</h3>
+                {emptyMessage?.subtitle && (
+                    <p className="log-table-empty-subtitle">{emptyMessage.subtitle}</p>
+                )}
             </div>
         );
     }

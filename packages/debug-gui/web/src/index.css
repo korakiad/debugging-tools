@@ -179,7 +179,7 @@ button.suite-toggle:focus:not([focused]) {
 }
 
 /* Summary text for an ask_user prompt rendered inline in the chat
-   drawer. Sits between the "assistant:" label and the option buttons,
+   drawer. Sits between the agent badge and the option buttons,
    so it needs to read as a multi-line message body — generous
    line-height, soft accent border-left, no panel chrome. */
 .prompt-summary {
@@ -190,7 +190,7 @@ button.suite-toggle:focus:not([focused]) {
     overflow-wrap: anywhere;
     background-color: rgba(255, 255, 255, 0.03);
     border-left: 2px solid var(--ef-primary, #334bff);
-    border-radius: 2px;
+    border-radius: 0;
 }
 
 /* Prompt option — clickable card for ask_user choices. Halo's
@@ -217,7 +217,7 @@ button.suite-toggle:focus:not([focused]) {
     background-color: #1a1a1a;
     color: inherit;
     border: 1px solid #404040;
-    border-radius: 2px;
+    border-radius: 0;
     cursor: pointer;
     overflow: visible;
     transition: background-color 120ms, border-color 120ms, color 120ms;
@@ -266,7 +266,7 @@ button.prompt-option:focus-visible {
     color: var(--ef-color, inherit);
     background-color: var(--ef-content-primary-background-color, #1a1a1a);
     border: 1px solid #404040;
-    border-radius: 2px;
+    border-radius: 0;
     resize: vertical;
 }
 .prompt-textarea:focus {
@@ -287,26 +287,45 @@ button.prompt-option:focus-visible {
     color: var(--debug-gui-text-primary);
     background: var(--debug-gui-bg-elevated);
     border: 1px solid rgba(255, 255, 255, 0.04);
-    border-radius: 4px;
+    border-radius: 0;
     padding: 0;
     overflow: hidden;
 }
 
-/* Status header — START/STOP buttons live in the top App toolbar; this
-   header carries STATUS pill, ELAPSED timer, STEP counter. */
-.log-status-header {
-    display: flex;
-    align-items: center;
-    gap: 24px;
-    padding: 12px 16px;
-    background: var(--debug-gui-bg-toolbar);
-    border-bottom: 1px solid var(--debug-gui-bg-base);
+/* Status bar — built on ef-appstate-bar (halo's top-of-app status
+   component). Heading ribbon = session state; body = ELAPSED + STEP.
+   ef-appstate-bar's own `state` attribute only ships info/highlight,
+   so the five session states override --heading-background-color via
+   the data-session attribute. */
+ef-appstate-bar.log-status {
+    height: auto;
+    min-height: 32px;
     font-size: 0.75rem;
 }
-.log-status-pill-group {
-    display: flex;
-    align-items: center;
-    gap: 10px;
+/* Hide ef-appstate-bar's built-in clear (×) button — the status bar is
+   informational, not dismissable. */
+ef-appstate-bar.log-status::part(close) {
+    display: none;
+}
+ef-appstate-bar.log-status[data-session="idle"] {
+    --heading-background-color: var(--ef-content-secondary-color, #4a5568);
+    --heading-text-color: #fff;
+}
+ef-appstate-bar.log-status[data-session="pre-running"] {
+    --heading-background-color: var(--ef-warning, #ffb74d);
+    --heading-text-color: #000;
+}
+ef-appstate-bar.log-status[data-session="running"] {
+    --heading-background-color: var(--ef-success, #4caf50);
+    --heading-text-color: #fff;
+}
+ef-appstate-bar.log-status[data-session="paused"] {
+    --heading-background-color: var(--ef-warning, #ffb74d);
+    --heading-text-color: #000;
+}
+ef-appstate-bar.log-status[data-session="done"] {
+    --heading-background-color: var(--ef-info, #4dd0e1);
+    --heading-text-color: #000;
 }
 .log-status-label {
     font-size: 0.65rem;
@@ -314,28 +333,11 @@ button.prompt-option:focus-visible {
     text-transform: uppercase;
     color: var(--ef-content-secondary-color, rgba(207, 215, 241, 0.55));
 }
-.log-status-pill {
+.log-status-meta {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 3px 10px;
-    font-size: 0.7rem;
-    font-weight: 600;
-    letter-spacing: 0.1em;
-    border: 1px solid;
-    border-radius: 999px;
-    background: rgba(0, 0, 0, 0.18);
-}
-.log-status-pill-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.04);
-}
-.log-status-meta {
-    display: flex;
-    align-items: center;
     gap: 8px;
+    margin-right: 24px;
     font-variant-numeric: tabular-nums;
 }
 .log-status-value {
@@ -346,6 +348,27 @@ button.prompt-option:focus-visible {
 .log-status-step-divider {
     margin: 0 4px;
     color: var(--ef-content-secondary-color, rgba(207, 215, 241, 0.4));
+}
+
+/* Side-band notice rendered between StatusHeader and Breadcrumb when the
+   server emits a `notice` event (e.g. after an approved edit, telling QA
+   that Continue won't pick up the fix and Run is required). ef-notification
+   handles its own dismiss button + collapse animation; we just claim the
+   row, force full width, and key the accent color to data-kind. */
+ef-notification.log-notice {
+    display: block;
+    width: 100%;
+    margin: 0;
+    border-radius: 0;
+}
+ef-notification.log-notice[data-kind="info"] {
+    --notification-bar-color: var(--ef-info, #4dd0e1);
+}
+ef-notification.log-notice[data-kind="warning"] {
+    --notification-bar-color: var(--ef-warning, #ffb74d);
+}
+ef-notification.log-notice[data-kind="error"] {
+    --notification-bar-color: var(--ef-error, #ef5350);
 }
 
 /* Breadcrumb — file > suite > test, with the step dots. */
@@ -398,7 +421,7 @@ button.prompt-option:focus-visible {
 .log-breadcrumb-dot {
     width: 8px;
     height: 4px;
-    border-radius: 2px;
+    border-radius: 0;
     background: rgba(207, 215, 241, 0.18);
     transition: background 120ms;
 }
@@ -410,6 +433,64 @@ button.prompt-option:focus-visible {
     font-size: 0.7rem;
     font-variant-numeric: tabular-nums;
     color: var(--ef-content-secondary-color, rgba(207, 215, 241, 0.55));
+}
+
+/* Empty hero — centered next-step nudge that replaces an entire dead
+   region (e.g. the right pane when no spec is selected). */
+.empty-hero {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 360px;
+    padding: 56px 32px;
+    text-align: center;
+    color: var(--debug-gui-text-primary);
+    background: var(--debug-gui-bg-elevated);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+}
+.empty-hero-icon {
+    margin-bottom: 18px;
+    color: var(--ef-content-secondary-color, rgba(207, 215, 241, 0.4));
+    line-height: 0;
+}
+.empty-hero-title {
+    margin: 0 0 8px;
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--debug-gui-text-strong, #fff);
+    letter-spacing: 0.01em;
+}
+.empty-hero-subtitle {
+    max-width: 38ch;
+    margin: 0;
+    font-size: 0.82rem;
+    line-height: 1.55;
+    color: var(--ef-content-secondary-color, rgba(207, 215, 241, 0.55));
+}
+
+/* Toolbar — the row above the main panel. Visual rhythm:
+     [run controls] ... gap ... [mode toggle] [settings ⚙]
+   The flex-1 spacer between control groups pushes mode/settings to the
+   right edge so Auto/Manual reads as a system-wide toggle, not another
+   action button. */
+.app-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.app-toolbar-spacer {
+    flex: 1;
+    min-width: 0;
+}
+.app-toolbar-divider {
+    width: 1px;
+    align-self: stretch;
+    margin: 4px 4px;
+    background: rgba(255, 255, 255, 0.08);
+}
+.app-toolbar-settings {
+    flex-shrink: 0;
 }
 
 /* Log table — virtual columns via CSS grid, monospace text. */
@@ -442,10 +523,29 @@ button.prompt-option:focus-visible {
     background: var(--debug-gui-bg-base);
 }
 .log-table-empty {
-    padding: 24px 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 180px;
+    padding: 32px 24px;
     text-align: center;
     color: var(--ef-content-secondary-color, rgba(207, 215, 241, 0.5));
     background: var(--debug-gui-bg-base);
+}
+.log-table-empty-title {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: var(--debug-gui-text-strong, #fff);
+}
+.log-table-empty-subtitle {
+    margin: 0;
+    max-width: 36ch;
+    font-size: 0.78rem;
+    line-height: 1.5;
 }
 .log-table-truncated {
     padding: 6px 16px;
@@ -474,7 +574,7 @@ button.prompt-option:focus-visible {
     font-size: 0.65rem;
     font-weight: 700;
     letter-spacing: 0.06em;
-    border-radius: 2px;
+    border-radius: 0;
     width: fit-content;
 }
 .log-row-step {
@@ -495,7 +595,7 @@ button.prompt-option:focus-visible {
     background: rgba(77, 208, 225, 0.06);
     border: 1px solid rgba(77, 208, 225, 0.25);
     border-left: 3px solid var(--ef-info, #4dd0e1);
-    border-radius: 3px;
+    border-radius: 0;
     color: inherit;
 }
 .log-heal-block-header {
@@ -511,7 +611,7 @@ button.prompt-option:focus-visible {
     font-size: 0.65rem;
     font-weight: 700;
     letter-spacing: 0.08em;
-    border-radius: 2px;
+    border-radius: 0;
     background: rgba(77, 208, 225, 0.18);
     color: var(--ef-info, #4dd0e1);
 }
@@ -549,7 +649,7 @@ button.prompt-option:focus-visible {
     margin: 0;
     padding: 8px 10px;
     background: rgba(0, 0, 0, 0.35);
-    border-radius: 2px;
+    border-radius: 0;
     font-family: var(--ef-font-monospace, ui-monospace, monospace);
     font-size: 0.75rem;
     line-height: 1.45;
@@ -630,17 +730,27 @@ button.prompt-option:focus-visible {
     padding: 12px;
     gap: 12px;
 }
+/* Pin direct children to their natural content height. Without this, the
+   flex algorithm shrinks FailureCard / DiffView (default flex-shrink:1)
+   below content when the panel is short — the boxes themselves fit, so
+   overflow-y:auto on .right-panel-body never activates, and DiffView's
+   Approve / Reject footer ends up clipped behind the shrunk box edge with
+   no way to scroll it into view. ChatDrawer keeps flex-grow:1 (via its own
+   `flex: 1`) so it still expands when there IS spare space. */
+.right-panel-body > * {
+    flex-shrink: 0;
+}
 
 /* ChatDrawer is now embedded inside right-panel-body. It's the only
    child that flex-grows; FailureCard / DiffView size to content. */
 .chat-drawer {
-    flex: 1;
+    flex: 1 0 0;
     min-height: 280px;
     display: flex;
     flex-direction: column;
     background: var(--debug-gui-bg-base);
     border: 1px solid rgba(255, 255, 255, 0.04);
-    border-radius: 4px;
+    border-radius: 0;
     overflow: hidden;
 }
 .chat-drawer-header {
@@ -663,16 +773,31 @@ button.prompt-option:focus-visible {
     gap: 10px;
 }
 .chat-drawer-message {
-    font-size: 0.82rem;
+    font-size: 0.8125rem;
     line-height: 1.45;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
 }
-.chat-drawer-role {
-    font-weight: 600;
-    color: var(--ef-content-secondary-color, rgba(207, 215, 241, 0.6));
-    font-size: 0.7rem;
-    letter-spacing: 0.06em;
+.chat-drawer-message--assistant {
+    border-left: 2px solid var(--ef-info, #4dd0e1);
+    padding-left: 10px;
+}
+/* Cyan pill that marks an agent turn. Reuses the same tokens as the
+   SELF-HEAL log row badge (.log-heal-block-badge) so the chat drawer
+   reads as the long-form surface of the same actor that emits SELF-HEAL
+   rows in the log feed. The aria-label on the span renders as
+   "Self-healing agent" for screen readers. */
+.chat-drawer-badge {
+    align-self: flex-start;
+    display: inline-flex;
+    padding: 2px 8px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    margin-bottom: 2px;
+    background: rgba(77, 208, 225, 0.18);
+    color: var(--ef-info, #4dd0e1);
 }
 .chat-drawer-content {
     white-space: pre-wrap;
@@ -692,11 +817,3 @@ button.prompt-option:focus-visible {
     margin-left: auto;
     font-style: normal;
 }
-.chat-drawer-input {
-    display: flex;
-    gap: 8px;
-    padding: 8px;
-    background: var(--debug-gui-bg-elevated);
-    border-top: 1px solid var(--debug-gui-bg-base);
-}
-

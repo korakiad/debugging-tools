@@ -129,7 +129,7 @@ export function TreePicker({ open, extensions, fetchTree, onPick, onCancel }: Tr
 
                 {!loading && !error && (
                     <div
-                        className="max-h-[50vh] overflow-auto rounded p-2"
+                        className="max-h-[50vh] overflow-auto p-2"
                         style={{ border: "1px solid var(--ef-border-color, #404040)" }}
                     >
                         {data.length === 0 ? (

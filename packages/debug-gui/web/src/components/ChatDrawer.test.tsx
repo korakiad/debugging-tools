@@ -15,7 +15,6 @@ describe("ChatDrawer", () => {
     it("renders pendingPrompt as an inline assistant turn", () => {
         const { container } = render(
             <ChatDrawer
-                onSend={() => {}}
                 onAbort={() => {}}
                 pendingPrompt={{
                     reqId: "r1",
@@ -37,7 +36,6 @@ describe("ChatDrawer", () => {
         const onPromptRespond = vi.fn();
         render(
             <ChatDrawer
-                onSend={() => {}}
                 onAbort={() => {}}
                 pendingPrompt={{
                     reqId: "r1",
@@ -55,7 +53,6 @@ describe("ChatDrawer", () => {
     it("does not render PromptPanel when pendingPrompt is null", () => {
         const { container } = render(
             <ChatDrawer
-                onSend={() => {}}
                 onAbort={() => {}}
                 pendingPrompt={null}
                 onPromptRespond={() => {}}
