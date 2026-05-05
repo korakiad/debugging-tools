@@ -40,6 +40,12 @@ export interface Prompt {
     options: { id: string; label: string; detail?: string }[];
     allowFreeText: boolean;
 }
+export interface LspWarning {
+    kind: "missing" | "broken" | "config-invalid" | "fs-error";
+    message?: string;
+    installCmd?: string;
+    stderrTail?: string;
+}
 
 export interface ServerEvent {
     type: string;
@@ -111,6 +117,8 @@ interface Store {
     runStartedAt: number | null;
     agentThinking: boolean;
     agentActivity: string;
+    lspWarning: LspWarning | null;
+    dismissLspWarning: () => void;
     applyEvent: (e: ServerEvent) => void;
     // Switch the active spec/node selection.
     //
@@ -158,6 +166,8 @@ export const useStore = create<Store>((set) => ({
     runStartedAt: null,
     agentThinking: false,
     agentActivity: "",
+    lspWarning: null,
+    dismissLspWarning: () => set({ lspWarning: null }),
     applyEvent: (e) =>
         set((s) => {
             if (e.type === "init") {
@@ -190,11 +200,34 @@ export const useStore = create<Store>((set) => ({
             }
             if (e.type === "status") {
                 if (e.state === "running" || e.state === "pre-running") {
+                    const wasLive =
+                        s.state.state === "running" ||
+                        s.state.state === "pre-running" ||
+                        s.state.state === "paused";
+                    if (wasLive) {
+                        // Resume from paused, or pre-running→running on
+                        // the same run. Don't wipe agent-session state —
+                        // pendingDiff/Pick/Prompt and chatMessages may
+                        // still belong to the in-flight session, and
+                        // mochaLog/runStartedAt anchor the same run.
+                        return { state: { ...s.state, state: e.state } };
+                    }
+                    // Fresh run starting from idle/done. The prior
+                    // session's resolvers were either resolved by QA or
+                    // rejected by the server's cancel handler, so the
+                    // chat / pendingDiff / pendingPick / pendingPrompt
+                    // we still hold are stale UI under the new run.
+                    // Same scope as selectSuite when the (spec, grep)
+                    // tuple changes — see the contract on Store.
                     return {
-                        state: { ...s.state, state: e.state },
+                        state: { state: e.state, currentSpec: s.state.currentSpec },
                         mochaLog: [], mochaExitCode: undefined,
                         runStartedAt: Date.now(),
                         agentThinking: false, agentActivity: "",
+                        chatMessages: [],
+                        pendingDiff: null,
+                        pendingPick: null,
+                        pendingPrompt: null,
                     };
                 }
                 // Keep `runStartedAt` on idle/done so deriveLog can still
@@ -263,6 +296,9 @@ export const useStore = create<Store>((set) => ({
                         { role: "assistant", content: `[error] ${e.message}` },
                     ],
                 };
+            }
+            if (e.type === "lsp/warning") {
+                return { lspWarning: e.warning as LspWarning };
             }
             return {};
         }),

@@ -19,6 +19,7 @@ describe("store", () => {
             runStartedAt: null,
             agentThinking: false,
             agentActivity: "",
+            lspWarning: null,
         });
     });
 
@@ -63,6 +64,51 @@ describe("store", () => {
         const got = useStore.getState().runStartedAt!;
         expect(got).toBeGreaterThanOrEqual(before);
         expect(got).toBeLessThanOrEqual(after);
+    });
+
+    describe("starting a fresh run", () => {
+        // Scenario: a prior run left the UI showing a FailureCard, a
+        // pending diff QA never approved, a chat transcript, and possibly
+        // a pending pick/prompt. QA clicks Stop (state→idle) or the suite
+        // finishes (state→done), then clicks Start again on the same
+        // selection. The server-side session is already torn down (cancel
+        // aborts the agent and rejects every in-flight resolver), so the
+        // client-side leftovers belong to a session that no longer exists.
+        // Treat them as stale and drop them when the new run begins, the
+        // same way selectSuite drops them on a (spec, grep) change.
+        const stale = {
+            chatMessages: [{ role: "assistant" as const, content: "old chat" }],
+            pendingDiff: { reqId: "d1", file: "old.js", oldCode: "a", newCode: "b", receivedAt: 0 },
+            pendingPick: { reqId: "p1", hint: "hint" },
+            pendingPrompt: { reqId: "q1", summary: "s", options: [], allowFreeText: false },
+        };
+
+        for (const prev of ["idle", "done"] as const) {
+            for (const next of ["pre-running", "running"] as const) {
+                it(`drops stale agent-session state on ${prev}→${next}`, () => {
+                    useStore.setState({
+                        ...stale,
+                        state: {
+                            state: prev,
+                            currentSpec: "test/login.spec.js",
+                            currentFailure: { test: "t", file: "x", error: "e", stack: "" },
+                            pausedAt: 12345,
+                        },
+                    });
+
+                    useStore.getState().applyEvent({ type: "status", state: next });
+
+                    const s = useStore.getState();
+                    expect(s.state.state).toBe(next);
+                    expect(s.state.currentFailure).toBeUndefined();
+                    expect(s.state.pausedAt).toBeUndefined();
+                    expect(s.chatMessages).toEqual([]);
+                    expect(s.pendingDiff).toBeNull();
+                    expect(s.pendingPick).toBeNull();
+                    expect(s.pendingPrompt).toBeNull();
+                });
+            }
+        }
     });
 
     it("initializes with idle state", () => {
@@ -328,6 +374,32 @@ describe("store", () => {
             expect(s.selectedNode).toBeNull();
             expect(s.mochaLog).toEqual([]);
             expect(s.state.currentFailure).toBeUndefined();
+        });
+    });
+
+    describe("lsp/warning event", () => {
+        it("populates lspWarning from event", () => {
+            useStore.getState().applyEvent({
+                type: "lsp/warning",
+                warning: {
+                    kind: "missing",
+                    installCmd: "npm install -g typescript-language-server",
+                },
+            });
+            expect(useStore.getState().lspWarning).toEqual({
+                kind: "missing",
+                installCmd: "npm install -g typescript-language-server",
+            });
+        });
+
+        it("dismissLspWarning clears it", () => {
+            useStore.getState().applyEvent({
+                type: "lsp/warning",
+                warning: { kind: "broken", stderrTail: "boom" },
+            });
+            expect(useStore.getState().lspWarning).not.toBeNull();
+            useStore.getState().dismissLspWarning();
+            expect(useStore.getState().lspWarning).toBeNull();
         });
     });
 });
