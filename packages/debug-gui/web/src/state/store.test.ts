@@ -173,6 +173,31 @@ describe("store", () => {
             },
         };
 
+        it("is a no-op while a run is live (defensive guard)", () => {
+            // Every call site in App.tsx is gated on !isLive, but the
+            // reducer also self-protects so a future caller can't silently
+            // wipe a live agent session (chat, pendingDiff, …).
+            for (const live of ["running", "pre-running", "paused"] as const) {
+                useStore.setState({
+                    ...stale,
+                    selectedSpec: "test/old.spec.js",
+                    selectedNode: { kind: "it", fullTitle: "old > t" },
+                    state: { state: live, currentSpec: "test/old.spec.js" },
+                });
+
+                useStore.getState().selectSuite("test/new.spec.js", null);
+
+                const s = useStore.getState();
+                expect(s.selectedSpec).toBe("test/old.spec.js");
+                expect(s.selectedNode).toEqual({ kind: "it", fullTitle: "old > t" });
+                expect(s.chatMessages).toEqual(stale.chatMessages);
+                expect(s.pendingDiff).toEqual(stale.pendingDiff);
+                expect(s.pendingPick).toEqual(stale.pendingPick);
+                expect(s.pendingPrompt).toEqual(stale.pendingPrompt);
+                expect(s.state.state).toBe(live);
+            }
+        });
+
         it("clears stale run-output when switching to a different spec", () => {
             useStore.setState({
                 ...stale,

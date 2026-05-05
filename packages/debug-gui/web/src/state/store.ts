@@ -258,6 +258,16 @@ export const useStore = create<Store>((set) => ({
         }),
     selectSuite: (spec, node) =>
         set((s) => {
+            // Defensive: every call site in App.tsx already gates this on
+            // !isLive, but a future caller could forget. Bail rather than
+            // silently wipe a live agent session — the destructive scope
+            // below includes chatMessages, pendingDiff, pendingPick,
+            // pendingPrompt, which the agent code may still be awaiting.
+            const live =
+                s.state.state === "running" ||
+                s.state.state === "pre-running" ||
+                s.state.state === "paused";
+            if (live) return {};
             const sameSpec = spec === s.selectedSpec;
             const sameNode =
                 node?.kind === s.selectedNode?.kind &&
