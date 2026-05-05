@@ -19,6 +19,8 @@ import { makeAskUserTool } from "./tools/askUser.js";
 import { drainResolvers, type PendingResolver } from "./resolvers.js";
 import { SCREENSHOT_DIR } from "./screenshot.js";
 import { launchAppMode } from "./launcher.js";
+import { ensureLspConfig } from "./lspInit.js";
+import type { LspWarning } from "./messages.js";
 import { CopilotClient } from "@github/copilot-sdk";
 
 export const VERSION = "0.0.1";
@@ -86,12 +88,27 @@ export async function main(
         app.get(/^\/(?!api|ws).*/, (_req, res) => res.sendFile(path.join(webDist, "index.html")));
     }
 
+    const lspResult = await ensureLspConfig(cwd);
+    const lspWarning: LspWarning | null =
+        lspResult.status === "ok"
+            ? null
+            : {
+                kind: lspResult.status,
+                message: lspResult.message,
+                installCmd: lspResult.installCmd,
+                stderrTail: lspResult.stderrTail,
+            };
+    console.log(`[lsp] ${lspResult.status}${lspResult.message ? `: ${lspResult.message}` : ""}`);
+
     const httpServer = http.createServer(app);
 
     const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
     wss.on("connection", (ws) => {
         hub.add(ws);
         ws.send(JSON.stringify({ type: "init", suites, config, state: session.getState() }));
+        if (lspWarning) {
+            ws.send(JSON.stringify({ type: "lsp/warning", warning: lspWarning }));
+        }
         ws.on("message", (raw) => hub.handleIncoming(raw.toString()));
         ws.on("close", () => hub.remove(ws));
     });
@@ -103,7 +120,10 @@ export async function main(
         }
     });
 
-    const copilot = new CopilotClient({ sessionIdleTimeoutSeconds: 1800 });
+    const copilot = new CopilotClient({
+        sessionIdleTimeoutSeconds: 1800,
+        cliArgs: ["--experimental"],
+    });
     await copilot.start();
 
     // Tracked across messages so agent_abort can reach the live session and
