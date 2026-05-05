@@ -54,7 +54,7 @@ export function PromptPanel({
                         value={text}
                         onChange={(e) => setText(e.target.value)}
                         rows={2}
-                        placeholder="Add notes (optional)…"
+                        placeholder="มีอะไรที่ผมอาจมองข้ามไหม? (optional)"
                         className="prompt-textarea"
                     />
                     <EfButton
