@@ -69,6 +69,12 @@ export function buildMochaCommand(opts: BuildOptions): MochaCommand {
 
     if (opts.grep) args.push("--grep", opts.grep);
 
+    // Override timeout to unlimited unless the caller already supplied one.
+    // The GUI owns stop/start; mocha's 2 s default would false-fail E2E tests
+    // on consumer projects that don't configure a timeout themselves.
+    const hasTimeoutFlag = opts.customCommand?.args.includes("--timeout");
+    if (!hasTimeoutFlag) args.push("--timeout", "0");
+
     return {
         command,
         args,
