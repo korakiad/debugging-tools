@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { Fragment, useEffect, useRef } from "react";
 import type { LogRow as LogRowData } from "./deriveLog";
 import { LogRow } from "./LogRow";
 
@@ -47,11 +47,15 @@ export function LogTable({ rows, truncated, onSelfHealRow }: LogTableProps) {
                 )}
                 {rows.map((row) => {
                     if (row.level === "SELF-HEAL" && onSelfHealRow) {
+                        // Fragment so the LogRow keeps its `role="row"` as a
+                        // direct child of the rowgroup and the heal block
+                        // sits beside it — no synthetic wrapper that would
+                        // create a row-inside-a-row in the AOM.
                         return (
-                            <div key={row.id} className="log-table-heal-wrapper" role="row">
+                            <Fragment key={row.id}>
                                 <LogRow row={row} />
                                 {onSelfHealRow(row)}
-                            </div>
+                            </Fragment>
                         );
                     }
                     return <LogRow key={row.id} row={row} />;

@@ -489,9 +489,6 @@ button.prompt-option:focus-visible {
 }
 
 /* Self-heal callout — a card that follows its row in the table. */
-.log-table-heal-wrapper {
-    display: contents;
-}
 .log-heal-block {
     margin: 0 16px 12px !important;
     padding: 12px 14px !important;
