@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { TestTree, type SuiteTree } from "./TestTree";
 
 const oneSuite = [{ relPath: "test/a.spec.js", absPath: "/x/a.spec.js" }];
@@ -49,8 +49,14 @@ describe("TestTree", () => {
                 onSelect={() => {}}
             />
         );
-        expect(screen.getByText("test/a.spec.js")).toHaveAttribute("aria-pressed", "false");
-        expect(screen.getByText("test/b.spec.js")).toHaveAttribute("aria-pressed", "true");
+        expect(screen.getByRole("button", { name: "test/a.spec.js" })).toHaveAttribute(
+            "aria-pressed",
+            "false",
+        );
+        expect(screen.getByRole("button", { name: "test/b.spec.js" })).toHaveAttribute(
+            "aria-pressed",
+            "true",
+        );
     });
 
     // The suite-row buttons share their accessible name with the caret button
@@ -239,5 +245,306 @@ describe("TestTree", () => {
         await waitFor(() =>
             expect(screen.getByRole("button", { name: /open settings/i })).toBeDisabled(),
         );
+    });
+
+    // ---------- presentation: caseId chip + tag stripping ----------
+
+    const richTree: SuiteTree = {
+        file: "/x/regression.spec.ts",
+        relPath: "test/regression.spec.ts",
+        source: "",
+        children: [
+            {
+                kind: "describe",
+                title: "Example Regression Test",
+                fullTitle: "Example Regression Test",
+                line: 1,
+                endLine: 50,
+                children: [
+                    {
+                        kind: "it",
+                        title: "C1111111 - Company Overview - Business Summary [Regression][Smoke][Cl_Regression][Cl_Smoke]",
+                        fullTitle:
+                            "Example Regression Test C1111111 - Company Overview - Business Summary [Regression][Smoke][Cl_Regression][Cl_Smoke]",
+                        line: 5,
+                        endLine: 10,
+                        children: [],
+                    },
+                    {
+                        kind: "it",
+                        title: "C2222222 - OwnerShip [Regression][Smoke]",
+                        fullTitle:
+                            "Example Regression Test C2222222 - OwnerShip [Regression][Smoke]",
+                        line: 12,
+                        endLine: 18,
+                        children: [],
+                    },
+                    {
+                        kind: "it",
+                        title: "Move to ProductAlarm",
+                        fullTitle: "Example Regression Test Move to ProductAlarm",
+                        line: 20,
+                        endLine: 22,
+                        children: [],
+                    },
+                ],
+            },
+        ],
+    };
+    const richSuite = [{ relPath: "test/regression.spec.ts", absPath: "/x/regression.spec.ts" }];
+
+    it("renders caseId chips and strips bracketed tags from visible text", async () => {
+        render(
+            <TestTree
+                suites={richSuite}
+                selection={null}
+                onSelect={() => {}}
+                fetchTree={async () => richTree}
+            />
+        );
+        fireEvent.click(screen.getByLabelText("expand test/regression.spec.ts"));
+        await waitFor(() => rowByText(/Company Overview - Business Summary/));
+
+        // caseId surfaced as its own chip span — separated from the rest of
+        // the title so the QA's eye finds the identifier without scanning.
+        expect(screen.getByText("C1111111")).toHaveClass("suite-caseid-chip");
+        expect(screen.getByText("C2222222")).toHaveClass("suite-caseid-chip");
+
+        // Bracketed tags must NOT appear as visible text — they're noise
+        // when every row in the file repeats the same tag set.
+        const row = rowByText(/Company Overview - Business Summary/);
+        expect(row.textContent).not.toMatch(/\[Regression\]/);
+        expect(row.textContent).not.toMatch(/\[Smoke\]/);
+        expect(row.textContent).not.toMatch(/\[Cl_/);
+
+        // The displayed chip-count surfaces the tag count (+4) for that row,
+        // and the full tag list lives on the chip's `title` attribute so
+        // hovering reveals it.
+        const chipCounts = screen.getAllByText(/^\+\d+$/);
+        const fourChip = chipCounts.find((el) => el.textContent === "+4");
+        expect(fourChip).toBeTruthy();
+        expect(fourChip).toHaveAttribute("title", "Regression · Smoke · Cl_Regression · Cl_Smoke");
+
+        // Row without tags has no count chip.
+        const plainRow = rowByText(/Move to ProductAlarm/);
+        expect(plainRow.textContent).not.toMatch(/\+\d+/);
+    });
+
+    it("preserves the raw title (with tags) on the row's hover tooltip", async () => {
+        render(
+            <TestTree
+                suites={richSuite}
+                selection={null}
+                onSelect={() => {}}
+                fetchTree={async () => richTree}
+            />
+        );
+        fireEvent.click(screen.getByLabelText("expand test/regression.spec.ts"));
+        await waitFor(() => rowByText(/Company Overview - Business Summary/));
+        const row = rowByText(/Company Overview - Business Summary/);
+        expect(row).toHaveAttribute(
+            "title",
+            "C1111111 - Company Overview - Business Summary [Regression][Smoke][Cl_Regression][Cl_Smoke]",
+        );
+    });
+
+    it("clicking a chipped it row still selects by raw fullTitle (preserves --grep semantics)", async () => {
+        const onSelect = vi.fn();
+        render(
+            <TestTree
+                suites={richSuite}
+                selection={null}
+                onSelect={onSelect}
+                fetchTree={async () => richTree}
+            />
+        );
+        fireEvent.click(screen.getByLabelText("expand test/regression.spec.ts"));
+        await waitFor(() => rowByText(/Company Overview - Business Summary/));
+        fireEvent.click(rowByText(/Company Overview - Business Summary/));
+        expect(onSelect).toHaveBeenCalledWith({
+            spec: "test/regression.spec.ts",
+            node: {
+                kind: "it",
+                fullTitle:
+                    "Example Regression Test C1111111 - Company Overview - Business Summary [Regression][Smoke][Cl_Regression][Cl_Smoke]",
+            },
+        });
+    });
+
+    // ---------- search / filter ----------
+
+    function getSearchInput(): HTMLInputElement {
+        // ef-text-field renders a real <input> in shadow DOM, but in
+        // jsdom the @lit/react wrapper bubbles `value-changed` events
+        // when we set the property. Easier: dispatch a synthetic event.
+        return screen.getByLabelText("filter test suites") as unknown as HTMLInputElement;
+    }
+    function setQuery(v: string) {
+        const field = getSearchInput();
+        // ef-text-field fires a CustomEvent<{value}> on edit. Simulate it
+        // directly so the React handler runs without needing shadow-DOM
+        // typing to drill into the inner <input>. Wrap in act() so the
+        // resulting state update + debounced effect schedule are flushed
+        // inside the test's act-tracked window.
+        act(() => {
+            field.dispatchEvent(
+                new CustomEvent("value-changed", { detail: { value: v }, bubbles: true }),
+            );
+        });
+    }
+
+    const multiSuiteList = [
+        { relPath: "test/regressionTest.ts", absPath: "/x/regressionTest.ts" },
+        { relPath: "test/productAlarm.ts", absPath: "/x/productAlarm.ts" },
+    ];
+    const productAlarmTree: SuiteTree = {
+        file: "/x/productAlarm.ts",
+        relPath: "test/productAlarm.ts",
+        source: "",
+        children: [
+            {
+                kind: "describe",
+                title: "Product Alarm",
+                fullTitle: "Product Alarm",
+                line: 1,
+                endLine: 10,
+                children: [
+                    {
+                        kind: "it",
+                        title: "C9999999 - Trigger alarm [Smoke]",
+                        fullTitle: "Product Alarm C9999999 - Trigger alarm [Smoke]",
+                        line: 2,
+                        endLine: 5,
+                        children: [],
+                    },
+                ],
+            },
+        ],
+    };
+
+    it("typing in the filter narrows the visible files and tests", async () => {
+        const fetchTree = vi.fn(async (spec: string) => {
+            if (spec === "test/regressionTest.ts") return richTree;
+            if (spec === "test/productAlarm.ts") return productAlarmTree;
+            throw new Error("unknown spec");
+        });
+        render(
+            <TestTree
+                suites={multiSuiteList}
+                selection={null}
+                onSelect={() => {}}
+                fetchTree={fetchTree}
+            />
+        );
+
+        // Trigger filter — the tree auto-loads every suite (debounced 250ms)
+        // so a hidden tag like [Smoke] can be matched in unopened files.
+        // Use "Trigger" (only in productAlarm) so the assertion that the
+        // other file is hidden isn't muddied by accidental substring hits.
+        setQuery("Trigger");
+        await waitFor(
+            () => expect(fetchTree).toHaveBeenCalledWith("test/productAlarm.ts"),
+            { timeout: 1500 },
+        );
+        await waitFor(() => rowByText(/Trigger alarm/));
+
+        // The non-matching file row (regressionTest.ts) is hidden.
+        expect(screen.queryByRole("button", { name: "test/regressionTest.ts" })).toBeNull();
+        // The matching file row is shown and auto-expanded so the leaf
+        // is visible without a manual click.
+        expect(screen.getByRole("button", { name: "test/productAlarm.ts" })).toBeInTheDocument();
+        expect(rowByText(/Trigger alarm/)).toBeInTheDocument();
+
+        // The tests-match meta-line summarizes the result count.
+        expect(screen.getByText(/\d+ of \d+ tests match/i)).toBeInTheDocument();
+    });
+
+    it("matches against tags even though they are visually hidden", async () => {
+        const fetchTree = vi.fn(async (spec: string) => {
+            if (spec === "test/regressionTest.ts") return richTree;
+            if (spec === "test/productAlarm.ts") return productAlarmTree;
+            throw new Error("unknown spec");
+        });
+        render(
+            <TestTree
+                suites={multiSuiteList}
+                selection={null}
+                onSelect={() => {}}
+                fetchTree={fetchTree}
+            />
+        );
+
+        setQuery("Cl_Regression");
+        await waitFor(
+            () => expect(fetchTree).toHaveBeenCalledWith("test/regressionTest.ts"),
+            { timeout: 1500 },
+        );
+        await waitFor(() => rowByText(/Company Overview - Business Summary/));
+
+        // Only the row that carries [Cl_Regression] is visible. The other
+        // it() in the same describe (OwnerShip — no Cl_Regression tag) is
+        // hidden, even though its parent describe matches as a container.
+        expect(rowByText(/Company Overview - Business Summary/)).toBeInTheDocument();
+        // OwnerShip row has [Regression][Smoke] but NOT [Cl_Regression] —
+        // should be filtered out. (rowByText throws if not exactly 1 match,
+        // so use queryAllByRole instead.)
+        const allRows = screen
+            .queryAllByRole("button")
+            .filter((el) => el.classList.contains("suite-row"));
+        const ownership = allRows.find((el) => /OwnerShip/.test(el.textContent ?? ""));
+        expect(ownership).toBeUndefined();
+
+        // The unrelated file (productAlarm) has no tag matching, so its
+        // row is hidden too.
+        expect(screen.queryByRole("button", { name: "test/productAlarm.ts" })).toBeNull();
+    });
+
+    it("clear button resets the filter", async () => {
+        const fetchTree = vi.fn(async (spec: string) => {
+            if (spec === "test/regressionTest.ts") return richTree;
+            if (spec === "test/productAlarm.ts") return productAlarmTree;
+            throw new Error("unknown spec");
+        });
+        render(
+            <TestTree
+                suites={multiSuiteList}
+                selection={null}
+                onSelect={() => {}}
+                fetchTree={fetchTree}
+            />
+        );
+
+        setQuery("Trigger");
+        await waitFor(() => expect(screen.queryByRole("button", { name: "test/regressionTest.ts" })).toBeNull());
+
+        fireEvent.click(screen.getByLabelText("clear filter"));
+        // After clearing, both file rows are visible again.
+        expect(screen.getByRole("button", { name: "test/regressionTest.ts" })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "test/productAlarm.ts" })).toBeInTheDocument();
+        // The tests-match meta-line is gone when not filtering.
+        expect(screen.queryByText(/of \d+ tests match/i)).toBeNull();
+    });
+
+    it("filter matches a file by path even when no tests inside match", async () => {
+        const fetchTree = vi.fn(async (spec: string) => {
+            if (spec === "test/regressionTest.ts") return richTree;
+            if (spec === "test/productAlarm.ts") return productAlarmTree;
+            throw new Error("unknown spec");
+        });
+        render(
+            <TestTree
+                suites={multiSuiteList}
+                selection={null}
+                onSelect={() => {}}
+                fetchTree={fetchTree}
+            />
+        );
+        // "regressionTest" appears in the path but not in any test title.
+        setQuery("regressionTest");
+        await waitFor(() =>
+            expect(screen.getByRole("button", { name: "test/regressionTest.ts" })).toBeInTheDocument(),
+        );
+        // The unrelated file is hidden.
+        expect(screen.queryByRole("button", { name: "test/productAlarm.ts" })).toBeNull();
     });
 });

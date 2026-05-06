@@ -108,11 +108,15 @@ ef-button[cta][disabled] {
 }
 
 /* Inner clickable label — transparent so the wrapper's chrome shows
-   through. Tests assert by .suite-row class so that name is preserved. */
+   through. Tests assert by .suite-row class so that name is preserved.
+   Single-line layout: the row is a flex strip [caseId chip][title][flags][tag-count];
+   only .suite-row-text shrinks and ellipsizes, the chips stay at intrinsic size. */
 .suite-row {
     flex: 1;
     min-width: 0;
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: 6px;
     text-align: left;
     background: transparent;
     border: 0;
@@ -121,15 +125,107 @@ ef-button[cta][disabled] {
     line-height: 1.3;
     color: inherit;
     cursor: pointer;
-    word-break: break-all;
-    overflow-wrap: anywhere;
-    /* Halo's native-elements.css forces every <button> to height:24px and
-       overflow:hidden — so wrapped text would otherwise either clip or
-       spill below the bordered row container. height:auto lets the inner
-       label grow with content; align-items:stretch on .suite-item then
-       grows the chrome to match. */
+    white-space: nowrap;
+    /* Halo's native-elements.css forces every <button> to height:24px,
+       overflow:hidden — single-line means we want exactly that, but the
+       row chrome (.suite-item) grows from align-items:stretch so we
+       still need height:auto here to let the row breathe to 28px. */
     height: auto;
-    overflow: visible;
+    overflow: hidden;
+}
+.suite-row-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.suite-caseid-chip {
+    flex: 0 0 auto;
+    font-family: var(--debug-gui-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    line-height: 1;
+    padding: 2px 5px;
+    background-color: rgba(51, 75, 255, 0.18);
+    color: var(--ef-primary, #334bff);
+}
+.suite-tag-chip-count {
+    flex: 0 0 auto;
+    font-size: 10px;
+    line-height: 1;
+    opacity: 0.55;
+    padding: 1px 4px;
+    background-color: rgba(255, 255, 255, 0.05);
+    transition: opacity 120ms;
+}
+.suite-row:hover .suite-tag-chip-count,
+.suite-tag-chip-count:hover {
+    opacity: 1;
+}
+.suite-flag-only,
+.suite-flag-skip {
+    flex: 0 0 auto;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    line-height: 1;
+    padding: 2px 5px;
+}
+.suite-flag-only {
+    color: #f0a020;
+    background-color: rgba(240, 160, 32, 0.12);
+}
+.suite-flag-skip {
+    color: rgba(255, 255, 255, 0.45);
+    text-decoration: line-through;
+    background-color: rgba(255, 255, 255, 0.04);
+}
+
+/* Filter input strip directly under the panel header. The clear (✕) is
+   absolutely positioned over the trailing edge of the ef-text-field so
+   it never affects the field's intrinsic width. */
+.tree-search-bar {
+    position: relative;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--debug-gui-bg-base);
+}
+.tree-search-bar ef-text-field {
+    width: 100%;
+}
+.tree-search-clear {
+    position: absolute;
+    top: 50%;
+    right: 14px;
+    transform: translateY(-50%);
+    width: 18px;
+    height: 18px;
+    min-width: 0;
+    min-height: 0;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    z-index: 1;
+}
+.tree-search-clear:hover {
+    color: #fff;
+}
+button.tree-search-clear:focus,
+button.tree-search-clear:focus:not([focused]) {
+    background: transparent;
+    box-shadow: none;
+    outline: 0;
+}
+.tree-search-meta {
+    padding: 4px 12px 6px;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    opacity: 0.55;
 }
 /* Halo's button:focus:not([focused]){bg:#333} (specificity 0,2,1) would
    otherwise repaint the inner label grey on click. Match its specificity
