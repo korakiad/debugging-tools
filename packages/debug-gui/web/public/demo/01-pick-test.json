@@ -1,0 +1,20 @@
+{
+    "events": [
+        {
+            "type": "init",
+            "suites": [
+                { "relPath": "test/regression/loginSmoke.spec.js", "absPath": "/work/test/regression/loginSmoke.spec.js" },
+                { "relPath": "test/regression/productAlarm.spec.js", "absPath": "/work/test/regression/productAlarm.spec.js" },
+                { "relPath": "test/regression/portfolioFilters.spec.js", "absPath": "/work/test/regression/portfolioFilters.spec.js" },
+                { "relPath": "test/regression/uploadCompliance.spec.js", "absPath": "/work/test/regression/uploadCompliance.spec.js" },
+                { "relPath": "test/openfin/switchWindow.spec.js", "absPath": "/work/test/openfin/switchWindow.spec.js" },
+                { "relPath": "test/smoke/customUrl.spec.js", "absPath": "/work/test/smoke/customUrl.spec.js" }
+            ],
+            "config": {
+                "agent": { "mode": "auto" },
+                "preRun": ""
+            },
+            "state": { "state": "idle" }
+        }
+    ]
+}

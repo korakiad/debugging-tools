@@ -6,6 +6,11 @@ export function useWebSocket(url: string = "/ws") {
     const apply = useStore((s) => s.applyEvent);
 
     useEffect(() => {
+        // Demo mode (?demo=<name>) preloads the store from a static fixture
+        // and must not be clobbered by a real `init` from the server.
+        if ((window as unknown as { __DEMO_MODE__?: boolean }).__DEMO_MODE__) {
+            return;
+        }
         const absolute = url.startsWith("ws") ? url : `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}${url}`;
         const ws = new WebSocket(absolute);
         ref.current = ws;

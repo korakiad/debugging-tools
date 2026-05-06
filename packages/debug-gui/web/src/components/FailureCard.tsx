@@ -9,7 +9,7 @@ interface Failure {
 
 export function FailureCard({ failure }: { failure: Failure }) {
     return (
-        <EfPanel spacing style={{ display: "block", borderLeft: "3px solid var(--ef-error)" }}>
+        <EfPanel spacing data-anchor="failure-card" style={{ display: "block", borderLeft: "3px solid var(--ef-error)" }}>
             <div className="font-bold" style={{ color: "var(--ef-error)" }}>
                 {failure.test}
             </div>
