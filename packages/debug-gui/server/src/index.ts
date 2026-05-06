@@ -340,8 +340,10 @@ export async function main(
                                   `is to call ask_user with options that include a pick_* id (e.g. ` +
                                   `pick_login_button) — do NOT call pick_element or playwright-cli ` +
                                   `directly until QA chooses an option. The summary must be two lines ` +
-                                  `(Hypothesis "ผมคิดว่า [root cause] เพราะ [evidence]" + Invitation ` +
-                                  `asking for context you can't see). allowFreeText: true is mandatory. ` +
+                                  `(Hypothesis "I think [root cause] because [evidence]" + Invitation ` +
+                                  `asking for context you can't see). Default to English; if QA writes ` +
+                                  `back in another language, mirror their language for subsequent turns. ` +
+                                  `allowFreeText: true is mandatory. ` +
                                   `When QA picks a pick_* option, then call pick_element. When QA ` +
                                   `chooses apply_*, call edit_file. If QA chooses apply_* AND adds ` +
                                   `new-context freeText, do NOT apply — acknowledge, re-investigate, ` +

@@ -69,6 +69,6 @@ describe("PromptPanel", () => {
     it("textarea placeholder invites QA to add missing context", () => {
         render(<PromptPanel {...baseProps} allowFreeText={true} onRespond={() => {}} />);
         const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
-        expect(ta.placeholder).toMatch(/มองข้าม|missing|overlook/i);
+        expect(ta.placeholder).toMatch(/missing|overlook/i);
     });
 });

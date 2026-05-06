@@ -106,15 +106,15 @@ When status is `"paused"` (test failed):
 
    | Error Pattern | Agent asks |
    |---|---|
-   | `element not found` / `no such element` | "ผมว่า selector ผิด หรือไม่ก็หน้ายังโหลดไม่เสร็จ — อยากชี้ element ที่ถูกให้ผมไหม? หรือบอกผมว่าหน้านี้ปกติต้องผ่านอะไรก่อน" |
-   | `element not interactable` / `not clickable` | "ผมว่า element ถูกบัง (modal/overlay) หรือยัง disabled — มีอะไรที่ปกติต้องปิดก่อนไหม? หรืออยากชี้ element ที่ถูก" |
-   | `timeout` / `waitUntil` / `waiting for` | "ผมว่าหน้ายังโหลดไม่เสร็จ หรืออาจอยู่หน้าผิด — ตอนนี้บนจอเห็นอะไร? และมี step ที่ปกติต้องทำก่อนถึงหน้านี้ไหม" |
-   | `stale element reference` / `StaleElementReferenceError` | "ผมว่า DOM เปลี่ยนระหว่างที่ test กำลังคลิก (reload/re-render) — เห็นจอกระพริบหรือ refresh ไหม? เพิ่งแก้ component อะไรหรือเปล่า" |
-   | `AssertionError` / `expected` / `assert` | "ผมว่า assertion อ่าน element ผิดตัว หรือค่าจริงต่างจากที่คาด — อยากชี้ element ที่ควรถือค่านั้นให้ผมไหม? หรือบอกได้ว่าค่าควรเป็นอะไร" |
-   | `navigation` / `ERR_` / `net::` | "ผมว่าหน้าผิด — อาจ redirect ผิดทาง หรือต้อง login ก่อน. ตอนนี้เห็นหน้าอะไร และปกติต้อง login ก่อนถึง flow นี้ไหม" |
-   | `frame` / `iframe` / `switchToFrame` / `contentFrame` | "ผมว่า element อยู่ใน iframe — ชี้ให้ผมหน่อยจะได้ frame chain ครบ. หรือบอกได้ว่าปกติเข้า iframe ตัวไหน" |
-   | `ECONNREFUSED` / `session not created` / `session deleted` | "ผมว่า browser ปิดหรือ crash — window ยังเปิดอยู่ไหม? เพิ่งทำอะไรกับ browser หรือเปล่า" |
-   | Unrecognized error | "ผม unsure ว่าเกิดอะไร — ถ้าเกี่ยวกับ element ชี้ให้ผม, หรืออธิบายว่าตอนนี้เห็นอะไรและคาดว่าควรเห็นอะไร" |
+   | `element not found` / `no such element` | "I think the selector is wrong, or the page hasn't finished loading — want to point me at the right element? Or tell me what normally has to happen on this page first." |
+   | `element not interactable` / `not clickable` | "I think the element is covered (modal/overlay) or still disabled — anything that normally has to be dismissed first? Or want to point me at the right element?" |
+   | `timeout` / `waitUntil` / `waiting for` | "I think the page hasn't finished loading, or we may be on the wrong page — what do you see on screen right now? And is there a step that normally has to happen before this page?" |
+   | `stale element reference` / `StaleElementReferenceError` | "I think the DOM changed while the test was clicking (reload/re-render) — did you see the screen flicker or refresh? Did you just edit a component?" |
+   | `AssertionError` / `expected` / `assert` | "I think the assertion is reading the wrong element, or the actual value differs from what we expected — want to point me at the element that should hold that value? Or tell me what the value should be?" |
+   | `navigation` / `ERR_` / `net::` | "I think we're on the wrong page — it may have redirected the wrong way, or you need to log in first. What page do you see now, and does this flow normally require a login first?" |
+   | `frame` / `iframe` / `switchToFrame` / `contentFrame` | "I think the element is inside an iframe — point at it for me so I get the full frame chain. Or tell me which iframe this normally lives in." |
+   | `ECONNREFUSED` / `session not created` / `session deleted` | "I think the browser closed or crashed — is the window still open? Did you just do something to the browser?" |
+   | Unrecognized error | "I'm unsure what happened — if it's about an element, point me at it; otherwise describe what you see now and what you expected to see." |
 
 4. **Interpret QA's response and act:**
 
@@ -288,11 +288,11 @@ Never leave QA hanging with "I don't know."
 When the orchestrator's prompt begins with "You are in MANUAL mode", the rules are:
 
 1. **Element-related failure → first action is to offer `pick_element`.** Before any snapshot/eval, call `ask_user` with options that include picking the element (e.g. `pick_login_button`). Only investigate via playwright-cli if QA declines or chooses an investigation option.
-   For this first ask_user (no CDP inspection has happened yet), use the raw error string itself as evidence in the Hypothesis line — e.g. "ผมคิดว่า selector ผิด เพราะ error บอกว่า `no such element`".
+   For this first ask_user (no CDP inspection has happened yet), use the raw error string itself as evidence in the Hypothesis line — e.g. "I think the selector is wrong because the error says `no such element`".
 2. After **every** CDP / playwright-cli inspection step (snapshot, eval, click, screenshot), call `ask_user` with:
    - a `summary` formatted as **two lines**:
-     - **Hypothesis line** — "ผมคิดว่า [root cause] เพราะ [evidence จาก CDP / pick / error]"
-     - **Invitation line** — "มี context อะไรที่ผมอาจมองข้ามไหม? (เช่น step ที่ปกติทำ, modal ที่ต้องปิด, เพิ่งแก้ code อะไร) — พิมพ์บอกได้เลย"
+     - **Hypothesis line** — "I think [root cause] because [evidence from CDP / pick / error]"
+     - **Invitation line** — "Any context I might be missing? (e.g. a step you normally do, a modal to dismiss, code you just changed) — just type and tell me."
    - 2-3 `options` describing what you could do next
    - `allowFreeText: true` — **mandatory in manual mode, no exceptions**
 3. Option id conventions:
