@@ -170,13 +170,10 @@ No file cleanup needed — HTTP server closes automatically when tests finish.
 ## Fix strategies
 
 ### Selector fixes
-When inspecting an element, extract raw attributes and choose the best selector
-based on what the project already uses:
-
-```bash
-# Get all useful attributes at once
-playwright-cli --raw eval "el => JSON.stringify({tag: el.tagName, id: el.id, class: el.className, testid: el.getAttribute('data-testid'), ariaLabel: el.getAttribute('aria-label'), role: el.role, name: el.getAttribute('name')})" e5
-```
+Use `playwright-cli --raw eval` against the element ref to extract whichever
+attributes you need (tag, id, classes, data-*, aria-*, role, name). Compose
+the JSON.stringify expression for the situation; ask the CLI for syntax if
+you're unsure: `playwright-cli eval --help`.
 
 Match the project's existing selector strategy:
 - If POMs use `data-testid` → prefer `$('[data-testid="..."]')`
@@ -198,11 +195,38 @@ When QA asks you to investigate, use these playwright-cli commands behind the
 scenes. Report findings in **plain language** — QA should never see command
 names or raw output.
 
-### Element state
-Check if the failing element exists and what state it's in:
+**Discover the live CLI surface — don't trust commands from memory.** When you
+need a command or flag not shown below, run `playwright-cli --help` (top-level
+catalog) or `playwright-cli <command> --help` (flags for a specific command).
+The playwright-cli SKILL is the canonical reference; the live `--help` output
+is the source of truth for flag names and syntax that may have changed between
+releases. The examples below are starter shapes — adapt them and verify with
+`--help` if anything looks off.
+
+### Working with the test browser CDP
+
+playwright-cli is session-scoped: every command runs against an attached
+session. Attach once with a unique session name, run any commands you need,
+then detach. Concurrent investigations don't collide as long as session
+names differ.
+
 ```bash
-playwright-cli --raw eval "el => JSON.stringify({tag: el.tagName, visible: el.offsetWidth > 0 && el.offsetHeight > 0, disabled: el.disabled, readonly: el.readOnly, display: getComputedStyle(el).display, opacity: getComputedStyle(el).opacity, pointerEvents: getComputedStyle(el).pointerEvents})" "<failing-selector>"
+sess=dgui_$RANDOM
+playwright-cli attach --cdp=http://localhost:<cdp-port> --session=$sess
+playwright-cli -s=$sess <any-command>      # snapshot, eval, console, network, ...
+playwright-cli -s=$sess detach
 ```
+
+All examples below assume you're inside an attached session (`-s=$sess`).
+
+### Element state
+Check if the failing element exists and what state it's in. Use
+`playwright-cli --raw eval` with a selector arg and a JSON.stringify
+expression returning the attributes you care about — typical needs: tagName,
+offset dimensions (visibility), `disabled` / `readOnly`, computed
+`display` / `opacity` / `pointerEvents`. `playwright-cli eval --help` shows
+the selector-arg syntax.
+
 If the element is not found, this tells you the selector is wrong.
 If found but not visible/disabled → element state issue.
 
@@ -270,5 +294,5 @@ Never leave QA hanging with "I don't know."
 - **NEVER fix without QA confirmation** — investigate and propose, but always ask "ok to apply?" before applying changes
 - **ALWAYS match error to pattern first** — read the error message and use the Error Pattern table to ask the right question
 - **ALWAYS report findings in plain language** — QA should never see playwright-cli commands, raw JSON, or technical jargon
-- **ALWAYS offer pick element** when the issue might be a wrong selector — say "Want to pick the correct element?"
+- **Prefer pick element by default** for selector failures when QA is at the keyboard — say "Want to pick the correct element?" Fall back to snapshot/eval when QA declines, the element can't be clicked through the picker, or you're running unattended.
 - **Use the rephrase escalation** when QA doesn't understand — simpler → yes/no → investigate yourself

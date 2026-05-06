@@ -220,9 +220,9 @@ export async function main(
         }),
         makeAskUserTool({
             onAsk: (summary, options, allowFreeText) => {
-                // SKILL.md item 2 mandates allowFreeText in manual mode so QA can
-                // surface context the agent's CDP inspection can't see. Force it
-                // here so a model that ignores the SKILL rule can't disable it.
+                // Manual mode always allows free text so QA can surface context
+                // the agent's CDP inspection can't see; force it here so a model
+                // that disables it in args can't override the mode.
                 const effectiveAllowFreeText =
                     config.agent.mode === "manual" ? true : allowFreeText;
                 const reqId = Math.random().toString(36).slice(2);
@@ -286,6 +286,7 @@ export async function main(
                 guiPid: process.pid,
                 customCommand,
                 grep: cmd.grep,
+                bailOnFailure: cmd.bailOnFailure,
             });
             await hooker.reset();
             await runner.start(mochaCmd);
@@ -296,7 +297,6 @@ export async function main(
             try {
                 agentSession = await copilot.createSession(
                     buildSessionConfig({
-                        cwd,
                         tools,
                         onPick: () => Promise.resolve({}),
                         onEdit: async () => ({ approved: true }),
@@ -335,19 +335,7 @@ export async function main(
                         const f = snap.currentFailure;
                         const manualPreamble =
                             config.agent.mode === "manual"
-                                ? `You are in MANUAL mode. Follow the walkthrough SKILL "Manual mode ` +
-                                  `contract" exactly: your FIRST action for any element-related failure ` +
-                                  `is to call ask_user with options that include a pick_* id (e.g. ` +
-                                  `pick_login_button) — do NOT call pick_element or playwright-cli ` +
-                                  `directly until QA chooses an option. The summary must be two lines ` +
-                                  `(Hypothesis "I think [root cause] because [evidence]" + Invitation ` +
-                                  `asking for context you can't see). Default to English; if QA writes ` +
-                                  `back in another language, mirror their language for subsequent turns. ` +
-                                  `allowFreeText: true is mandatory. ` +
-                                  `When QA picks a pick_* option, then call pick_element. When QA ` +
-                                  `chooses apply_*, call edit_file. If QA chooses apply_* AND adds ` +
-                                  `new-context freeText, do NOT apply — acknowledge, re-investigate, ` +
-                                  `and re-ask.\n\n`
+                                ? "You are in MANUAL mode. Always call ask_user before edit_file — the walkthrough SKILL describes the conversation pattern.\n\n"
                                 : "";
                         await agentSession!.sendAndWait(
                             {
@@ -360,10 +348,19 @@ export async function main(
                                     `  file:  ${f.file}\n` +
                                     `  error: ${f.error}\n` +
                                     `  stack:\n${f.stack}\n\n` +
-                                    `Follow the walkthrough SKILL. For non-element investigation ` +
-                                    `(timing, navigation, console errors) use playwright-cli at CDP ` +
-                                    `port ${config.cdp.port}. The QA operator will click Continue ` +
-                                    `in the GUI to resume the test runner once a fix is applied.`,
+                                    `The test browser is reachable via CDP at http://localhost:${config.cdp.port}.\n\n` +
+                                    `Decide your inspection approach using the walkthrough SKILL:\n` +
+                                    `- If this is an element-related failure (selector miss, "not found", ` +
+                                    `"not interactable", stale element, wrong-element assertions), call the ` +
+                                    `pick_element tool first so QA shows you the real element — that is more ` +
+                                    `reliable for selector work than DOM inspection.\n` +
+                                    `- For non-element failures (timing, navigation, console errors, network, ` +
+                                    `page state, frame topology), use the playwright-cli skill — its references ` +
+                                    `cover the attach/-s/detach pattern and each inspection capability.\n\n` +
+                                    `Do NOT run mocha, npm test, or any test command yourself. The GUI ` +
+                                    `orchestrates test execution. After you apply the fix via edit_file, stop ` +
+                                    `and let QA click Run in the GUI to re-execute the suite — that is the ` +
+                                    `only correct way to verify the fix.`,
                             },
                             config.agent.idleTimeoutMs,
                         );

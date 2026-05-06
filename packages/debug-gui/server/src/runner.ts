@@ -48,6 +48,10 @@ export interface BuildOptions {
     // title matches the regex run. Built from the user's tree selection;
     // see parseSuite.mochaGrepFor.
     grep?: string;
+    // When true the bundled hook switches to step-style behaviour: retries
+    // off + bail subsequent it/describe siblings as soon as one test fails.
+    // Surfaced via DEBUG_GUI_BAIL_ON_FAILURE=1 in the spawned mocha env.
+    bailOnFailure?: boolean;
 }
 
 export interface MochaCommand {
@@ -75,15 +79,14 @@ export function buildMochaCommand(opts: BuildOptions): MochaCommand {
     const hasTimeoutFlag = opts.customCommand?.args.includes("--timeout");
     if (!hasTimeoutFlag) args.push("--timeout", "0");
 
-    return {
-        command,
-        args,
-        env: {
-            ...process.env,
-            DEBUG_GUI_PORT: String(opts.guiPort),
-            DEBUG_GUI_PID: String(opts.guiPid),
-        },
+    const env: NodeJS.ProcessEnv = {
+        ...process.env,
+        DEBUG_GUI_PORT: String(opts.guiPort),
+        DEBUG_GUI_PID: String(opts.guiPid),
     };
+    if (opts.bailOnFailure) env.DEBUG_GUI_BAIL_ON_FAILURE = "1";
+
+    return { command, args, env };
 }
 
 // Quote a single argv entry for `spawn(..., { shell: true })`. Without this,

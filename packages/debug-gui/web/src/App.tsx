@@ -18,7 +18,7 @@ import { LogPanel } from "./components/LogPanel";
 import { Spinner } from "./components/Spinner";
 import { PreRunRow } from "./components/PreRunRow";
 import { SettingsDialog, type DebugGuiConfigShape } from "./components/SettingsDialog";
-import { EfButton } from "./ui";
+import { EfButton, EfCheckbox } from "./ui";
 
 export default function App() {
     const { send } = useWebSocket();
@@ -47,6 +47,11 @@ export default function App() {
     // user accidentally skip builds session after session; the design calls
     // out "always run build" as the safe default.
     const [skipPreRun, setSkipPreRun] = useState(false);
+    // Step-style suites: when checked, hook disables retries and bails the
+    // remaining describe/it siblings as soon as one test fails. Not
+    // persisted because it changes the whole-suite contract — QA opts in
+    // explicitly per session.
+    const [bailOnFailure, setBailOnFailure] = useState(false);
     const [preRunDirty, setPreRunDirty] = useState(false);
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [pendingSelection, setPendingSelection] = useState<TestSelection | null>(null);
@@ -176,7 +181,7 @@ export default function App() {
                         onClick={() => {
                             if (!canStart) return;
                             const grep = mochaGrepFor(selectedNode) ?? undefined;
-                            send({ type: "run", spec: selectedSpec!, skipPreRun, grep });
+                            send({ type: "run", spec: selectedSpec!, skipPreRun, grep, bailOnFailure });
                         }}
                     >
                         Start
@@ -212,6 +217,20 @@ export default function App() {
                             onDirtyChange={setPreRunDirty}
                         />
                     )}
+                    <label
+                        className="flex items-center gap-1 opacity-80 text-sm"
+                        title="When a test fails, skip the remaining tests in the suite and disable retries. Use for step-style describes where each it depends on the previous one."
+                    >
+                        <EfCheckbox
+                            aria-label="bail on failure"
+                            checked={bailOnFailure}
+                            onCheckedChanged={(e) =>
+                                setBailOnFailure((e as CustomEvent<{ value: boolean }>).detail.value)
+                            }
+                            disabled={isLive || switching || undefined}
+                        />
+                        Skip rest on failure
+                    </label>
                     <div className="app-toolbar-spacer" aria-hidden />
                     <ModeToggle
                         mode={mode}

@@ -1,198 +1,155 @@
 ---
 name: walkthrough
 description: Use when QA wants to debug failing E2E tests interactively — runs real test suite, pauses on each failure, inspects live app via CDP, asks QA to triage, and fixes selector or code issues in place
-allowed-tools: Bash(mocha:*) Bash(npx:*) Bash(node:*) Bash(playwright-cli:*) Bash(curl:*) Bash(cp:*) Bash(rm:*) Bash(cat:*) Bash(mkdir:*)
+allowed-tools: Bash(npx:*) Bash(playwright-cli:*)
 ---
 
-# /walkthrough — Collaborative E2E Debug Agent
+# /walkthrough — Collaborative E2E Debug Agent (debug-gui edition)
 
-## Quick start
+You run inside the **debug-gui**. The GUI orchestrator runs the test suite,
+detects pauses on failure, and invokes you with the failure details inlined in
+the prompt. Your job is to **investigate the live app, ask QA when needed, and
+propose or apply a fix** — then stop and let QA decide what to do next in the
+GUI.
 
-```bash
-# QA invokes with a spec file
-/walkthrough spec/login.spec.js
+## You do NOT control the test runner
 
-# Or with multiple specs
-/walkthrough spec/login.spec.js spec/dashboard.spec.js
-```
+The GUI handles every part of test execution. You must not:
 
-## How it works
+- Run `mocha`, `npx mocha`, `node ./bin/mocha`, `npm test`, or any other
+  command that starts a test process.
+- Re-run a spec to "verify" your fix end-to-end. The GUI's Run button is the
+  only correct way to re-execute. After you apply an edit, **stop** — QA will
+  click Run when they want to retry.
+- Poll `/status` / `/paused` / `/continue` HTTP endpoints. The orchestrator
+  owns those; you receive the failure details directly in your prompt.
+- Signal continue. QA clicks Continue or Run in the GUI.
 
-You are a collaborative debugging companion. You run the QA's real test suite,
-pause on each failure, inspect the live app, and ask QA before fixing anything.
+If you think the fix needs verification, **say so in chat** and stop. QA
+verifies by clicking Run.
 
-Communication with the test runner uses **HTTP IPC** — no file-based signaling,
-no cleanup needed, works identically on Windows and macOS.
+## What you do per pause
 
-## Session flow
+The orchestrator sends you a prompt that contains the failed test, file,
+error, stack, and CDP port of the test browser. For each pause:
 
-### Phase 1: Auto-detect project
+### 1. Pick the right inspection tool
 
-Read the codebase to learn the framework. Do NOT ask QA to configure anything.
+This is a real choice, not a default-and-qualifier:
 
-1. Read `package.json` → confirm mocha + wdio dependencies
-2. Read 3-5 test files → identify wrapper pattern (e.g. `Ws.instance.client.$()`)
-3. Trace imports from test files → find page object directory
-4. Scan page objects → learn selector strategy (css, aria, data-testid)
-5. Find CDP port from test config or framework setup files
-6. Check if project has custom `bin/mocha` — if so, use it (the decorator chains automatically)
+- **Element-related failures** (selector miss, "not found", "not
+  interactable", "stale element", wrong-element assertions): start with the
+  `pick_element` tool. It opens an overlay so QA clicks the real element, and
+  returns structured attributes (`tag`, `id`, `classes`, `data`, `aria`,
+  `frames`, …) you build the corrected selector from. More reliable than DOM
+  eval/snapshot for selector work because QA disambiguates visually and the
+  result already carries the iframe / shadow-DOM context.
+- **Non-element failures** (timing, navigation, console errors, network,
+  page state, frame topology): use the **playwright-cli** skill. The
+  Investigation toolkit below describes what to look at and why.
+- **Fall back from `pick_element` to playwright-cli inspection** only when
+  QA declines to pick, the element can't be clicked through the picker
+  (iframe wrappers, off-screen, hidden behind overlay), or you're running
+  unattended.
 
-Store these findings — you'll need them for every fix you suggest.
+### 2. Form a hypothesis and ask QA in plain language
 
-### Phase 2: Run tests with walkthrough decorator
+Read the error, decide what's likely wrong, and ask a question that presents
+the cause and a path forward. QA responds freely.
 
-Pick an available port (e.g. 3456) and run mocha with the env var:
+**Language:** speak whatever language QA writes in. The starter phrasings
+below are English for clarity; translate at runtime to match QA's language.
 
-```bash
-WALKTHROUGH_PORT=3456 mocha <spec-file> [any other flags QA normally uses] > /tmp/walkthrough-mocha.log 2>&1 &
-```
+#### Starter phrasings (adapt freely — examples, not a script)
 
-The `walkthrough-hooker.js` decorator activates automatically when `WALKTHROUGH_PORT`
-is set. No `--require` flag, no file copying needed.
+| Error pattern | Example phrasing |
+|---|---|
+| `element not found` / `no such element` | "I can't find the element — could be a wait that's too short, or the selector is wrong. Want to point me at the right element, or shall I dig into the DOM?" |
+| `element not interactable` / `not clickable` | "The element won't accept the click — it may be disabled or covered by an overlay. Anything you normally dismiss first?" |
+| `timeout` / `waitUntil` / `waiting for` | "Took too long — page may still be loading, or we're on the wrong page. What does the screen look like right now?" |
+| `stale element reference` | "The element disappeared mid-interaction — the page may have reloaded or the DOM changed. Did you see the screen flicker?" |
+| `AssertionError` / `expected` / `assert` | "The value we got doesn't match what was expected — could be wrong data or the wrong element. Want me to check the actual value, or pick the correct element?" |
+| `navigation` / `ERR_` / `net::` | "We're on the wrong page — could be a redirect, or you need to log in first. What page do you see now?" |
+| `frame` / `iframe` / `switchToFrame` / `contentFrame` | "The element might live in an iframe. Let me look at what frames are on the page." (Investigate iframes yourself via the Investigation toolkit's Frame detection — `pick_element` cannot reliably target iframe wrappers, and iframes look identical to QA visually.) |
+| `ECONNREFUSED` / `session not created` / `session deleted` | "The browser may have closed or crashed — do you still see the browser window?" |
+| Unrecognized error | "Unexpected error — what do you see on screen right now? Or want me to investigate?" |
 
-If the project does NOT have `walkthrough-hooker.js` loaded in its custom bin/mocha yet, use `-r` to load it:
-```bash
-WALKTHROUGH_PORT=3456 node -r .claude/skills/walkthrough/walkthrough-hooker.js \
-  ./node_modules/.bin/_mocha <spec-file> --timeout 30000 > /tmp/walkthrough-mocha.log 2>&1 &
-```
+### 3. Interpret QA's response and act
 
-Then attach to the running app via CDP:
-```bash
-playwright-cli attach --cdp=http://localhost:<cdp-port>
-playwright-cli video-start walkthrough-session.webm
-```
+QA can type anything in any language. Interpret intent:
 
-### Phase 3: Debug loop
+- **QA wants to pick an element** ("I'll pick", "let me show you", "ok"
+  after you offered pick): call `pick_element` with a short hint (e.g. "login
+  button"). The GUI opens an overlay so QA can click the real element. The
+  tool returns `{ tag, id, classes, data, aria, frames, ... }` — build the
+  correct selector from those attributes (matching the project's strategy).
+  Propose fix.
 
-Poll the HTTP endpoint for state changes:
+- **QA asks the agent to investigate** ("you check", "analyze it", "look
+  into it"): use playwright-cli to inspect the live app (Investigation
+  toolkit below). Report findings in plain language. Then propose a fix.
 
-```bash
-curl -s http://localhost:3456/status
-# → {"state":"running","startedAt":...}
-# → {"state":"paused","pausedAt":...}
-# → {"state":"done","finishedAt":...}
-```
+- **QA wants to skip** ("skip", "next", "don't fix"): stop. QA will click
+  Continue in the GUI.
 
-When status is `"paused"` (test failed):
+- **QA says the element is wrong** ("wrong selector", "that's not it"):
+  call `pick_element` so QA can show you the correct element. Build the
+  fixed selector from the returned attributes.
 
-1. **Read the failure** via HTTP:
-   ```bash
-   curl -s http://localhost:3456/paused
-   ```
-   Returns: `{"test":"...","suite":"...","file":"...","error":"...","stack":"...","duration":0,"pausedAt":0}`
+- **QA says it's a timing issue** ("loads too slow", "wait isn't long
+  enough"): investigate timing → propose adding explicit wait in code.
 
-2. **Inspect the live app** via playwright-cli:
-   ```bash
-   playwright-cli snapshot --depth=4
-   ```
-   For specific elements:
-   ```bash
-   playwright-cli --raw eval "el => JSON.stringify({tag: el.tagName, id: el.id, class: el.className, 'data-testid': el.getAttribute('data-testid'), 'aria-label': el.getAttribute('aria-label')})" "<selector>"
-   ```
+- **QA's response is unclear:** rephrase the question simpler (Rephrase
+  rules below).
 
-3. **Match error to pattern and ask QA:**
+- **Investigation inconclusive:** tell QA what you checked and offer:
+  "I'm not sure yet — want to pick the correct element, give me more info,
+  or skip for now?" — if pick, call `pick_element`.
 
-   Read the error message and match it to a known pattern. Ask QA a
-   plain-language question that presents likely causes. QA responds freely
-   — they can type anything.
+### 4. Apply the fix and stop
 
-   **Language:** speak whatever language QA writes in. The example phrasings
-   below are English for clarity; translate at runtime to match QA's language.
+When you have the fix, use `edit_file` to apply it. The GUI shows QA a diff
+to approve or reject. After the diff is resolved (approved or rejected),
+**stop**. Do not run anything to verify. QA clicks Run when they want to
+re-execute the suite.
 
-   **Default for element-related errors:** offer `pick_element` first. Letting
-   QA point at the real element is more reliable than the agent guessing from
-   a DOM snapshot, regardless of app size. Only fall back to agent investigation
-   if QA declines or the error clearly isn't about an element.
+If you're confident no fix is appropriate (environment issue, flaky test,
+out of scope), say so in chat and stop. QA decides whether to skip or fix
+manually.
 
-   | Error Pattern | Agent asks |
-   |---|---|
-   | `element not found` / `no such element` | "I think the selector is wrong, or the page hasn't finished loading — want to point me at the right element? Or tell me what normally has to happen on this page first." |
-   | `element not interactable` / `not clickable` | "I think the element is covered (modal/overlay) or still disabled — anything that normally has to be dismissed first? Or want to point me at the right element?" |
-   | `timeout` / `waitUntil` / `waiting for` | "I think the page hasn't finished loading, or we may be on the wrong page — what do you see on screen right now? And is there a step that normally has to happen before this page?" |
-   | `stale element reference` / `StaleElementReferenceError` | "I think the DOM changed while the test was clicking (reload/re-render) — did you see the screen flicker or refresh? Did you just edit a component?" |
-   | `AssertionError` / `expected` / `assert` | "I think the assertion is reading the wrong element, or the actual value differs from what we expected — want to point me at the element that should hold that value? Or tell me what the value should be?" |
-   | `navigation` / `ERR_` / `net::` | "I think we're on the wrong page — it may have redirected the wrong way, or you need to log in first. What page do you see now, and does this flow normally require a login first?" |
-   | `frame` / `iframe` / `switchToFrame` / `contentFrame` | "I think the element is inside an iframe — point at it for me so I get the full frame chain. Or tell me which iframe this normally lives in." |
-   | `ECONNREFUSED` / `session not created` / `session deleted` | "I think the browser closed or crashed — is the window still open? Did you just do something to the browser?" |
-   | Unrecognized error | "I'm unsure what happened — if it's about an element, point me at it; otherwise describe what you see now and what you expected to see." |
+## Project auto-detect (one-time, on first failure)
 
-4. **Interpret QA's response and act:**
+Before proposing your first fix in a session, briefly read the codebase to
+learn the framework — but only what you need to write a correct fix:
 
-   QA can type anything in any language. Interpret their intent:
+1. Read `package.json` → confirm test framework
+2. Read 2–3 test files near the failing spec → identify wrapper pattern
+   (e.g. `Ws.instance.client.$()`)
+3. Trace imports from the failing spec → find page object directory
+4. Scan a couple of page objects → learn selector strategy (css, aria,
+   data-testid)
 
-   - **QA wants to pick an element** (e.g. "I'll pick", "let me show you", "ok" after you offered pick):
-     Call the `pick_element` tool with a short hint (e.g. "login button"). The
-     GUI opens an overlay so QA can click the real element. The tool returns
-     `{ tag, id, classes, data, aria, frames, ... }` — build the correct
-     selector from those attributes (matching the project's strategy). Propose
-     fix — do NOT apply yet.
-
-   - **QA asks the agent to investigate** (e.g. "you check", "analyze it", "look into it"):
-     Use playwright-cli to inspect the live app (see Investigation Toolkit below).
-     Report findings in plain language. Then propose a fix — do NOT apply yet.
-
-   - **QA wants to skip** (e.g. "skip", "next", "don't fix"):
-     Signal continue, move to next test.
-
-   - **QA says the element is wrong** (e.g. "wrong selector", "that's not it"):
-     Call `pick_element` so QA can show you the correct element. Build the
-     fixed selector from the returned attributes.
-
-   - **QA says it's a timing issue** (e.g. "loads too slow", "wait isn't long enough"):
-     Agent investigates timing → proposes adding explicit wait in code.
-
-   - **QA's response is unclear:**
-     Rephrase the question simpler (see Rephrase Rules below).
-
-   - **Agent investigated but cause is inconclusive:**
-     Tell QA what you checked and offer: "I'm not sure yet — want to pick the correct element, give me more info, or skip for now?" — if pick, call `pick_element`.
-
-5. **Fix-after-confirm:**
-
-   Agent MUST NOT apply any fix until QA confirms:
-   1. Agent shows finding: "I found that [root cause]"
-   2. Agent proposes fix: "Change [what] to [what], ok?" (show old vs new)
-   3. QA confirms → agent applies fix
-   4. QA rejects → agent asks what's wrong, adjusts
-
-6. **Signal continue:**
-   ```bash
-   curl -s -X POST http://localhost:3456/continue
-   ```
-
-7. **Repeat** until status shows `"state": "done"`
-
-### Phase 4: Wrap up
-
-1. Stop screencast:
-   ```bash
-   playwright-cli video-stop
-   ```
-2. Print session summary:
-   - How many tests passed / failed
-   - What you fixed (file, line, old -> new)
-   - What was skipped (environment issues)
-   - Where the screencast is saved
-
-No file cleanup needed — HTTP server closes automatically when tests finish.
+Store these findings in your working memory — you'll need them for every
+fix. **Do not** read framework setup files to figure out how to run mocha;
+you don't run mocha.
 
 ## Fix strategies
 
 ### Selector fixes
-When inspecting an element, extract raw attributes and choose the best selector
-based on what the project already uses:
-
-```bash
-# Get all useful attributes at once
-playwright-cli --raw eval "el => JSON.stringify({tag: el.tagName, id: el.id, class: el.className, testid: el.getAttribute('data-testid'), ariaLabel: el.getAttribute('aria-label'), role: el.role, name: el.getAttribute('name')})" e5
-```
-
-Match the project's existing selector strategy:
+Read the failing element's real attributes — tag, id, classes, `data-*`,
+`aria-*`, role, name — via the **playwright-cli** skill (`element-attributes`
+reference) or `pick_element`. Then match the project's existing selector
+strategy:
 - If POMs use `data-testid` → prefer `$('[data-testid="..."]')`
 - If POMs use `aria-label` → prefer `$('[aria-label="..."]')`
 - If POMs use CSS classes → prefer `$('tag.class')`
 
-Always use the project's wrapper: `Ws.instance.client.$('...')` not `browser.$('...')`
+Match the project's existing API style for finding elements — read a few
+neighbouring page objects and tests to see what's already in use. Some
+projects expose a wrapper (e.g. `Ws.instance.client.$('...')`); others use
+plain `browser.$('...')` / `$('...')` directly. Either is fine — follow the
+convention you observe. Don't introduce a wrapper the project doesn't use,
+and don't strip one it does.
 
 ### Code pattern fixes
 Read the surrounding code context. Common issues:
@@ -203,50 +160,62 @@ Read the surrounding code context. Common issues:
 
 ## Investigation toolkit
 
-When QA asks you to investigate, use these playwright-cli commands behind the
-scenes. Report findings in **plain language** — QA should never see command
-names or raw output.
+The subsections below describe **what to look at and why** when a test is
+paused. For the **how** — actual commands, flags, and expressions — load the
+**playwright-cli** skill; it's the canonical reference and ships with topic
+references covering each capability. Report findings in **plain language** —
+QA should never see command names or raw output.
+
+**Don't trust CLI commands from memory.** Consult the playwright-cli skill's
+references first. When you need a command or flag the references don't cover,
+run `playwright-cli --help` or `playwright-cli <command> --help` — the live
+`--help` output is the source of truth for flag names and syntax that may
+have changed between releases.
+
+### Working with the test browser CDP
+playwright-cli is session-scoped: attach once with a unique session name,
+reuse it for every inspection during the pause, then detach. Concurrent
+investigations don't collide as long as session names differ. The
+orchestrator passes the CDP port in the failure prompt — reuse it. See the
+playwright-cli skill's `session-management` reference for the
+attach/`-s`/detach pattern.
 
 ### Element state
-Check if the failing element exists and what state it's in:
-```bash
-playwright-cli --raw eval "el => JSON.stringify({tag: el.tagName, visible: el.offsetWidth > 0 && el.offsetHeight > 0, disabled: el.disabled, readonly: el.readOnly, display: getComputedStyle(el).display, opacity: getComputedStyle(el).opacity, pointerEvents: getComputedStyle(el).pointerEvents})" "<failing-selector>"
-```
-If the element is not found, this tells you the selector is wrong.
-If found but not visible/disabled → element state issue.
+Confirm the failing element exists and check its state — visibility (offset
+dimensions), `disabled` / `readOnly`, computed `display` / `opacity` /
+`pointerEvents`. If not found → the selector is wrong. If found but not
+actionable → element-state issue, not a selector issue. See the
+playwright-cli skill's `element-attributes` reference.
 
 ### DOM context
-See the DOM structure around the failing area:
-```bash
-playwright-cli snapshot --depth=4
-```
-Use targeted snapshots (`--selector` or element ref) to save tokens.
+When a selector miss looks structural rather than typo'd, see the DOM around
+the failing area to spot siblings, ancestors, and iframe boundaries. Prefer
+targeted / depth-limited snapshots over full-page dumps to save tokens. The
+playwright-cli skill covers the snapshot command and its scoping flags.
 
 ### Console errors
-Check for JS exceptions that might explain the failure:
-```bash
-playwright-cli console
-```
-Look for uncaught errors, failed imports, React/Vue errors.
+Check for JS exceptions that might explain the failure — uncaught errors,
+failed imports, framework errors. The playwright-cli skill covers the
+console command.
 
 ### Network requests
-Check for failed API calls:
-```bash
-playwright-cli network
-```
-Look for 4xx/5xx responses, CORS errors, missing endpoints.
+Check for failed API calls (4xx/5xx, CORS, missing endpoints) that may have
+left the UI in an unexpected state. The playwright-cli skill covers the
+network command.
 
 ### Frame detection
-Check if the page has iframes that might contain the target element:
-```bash
-playwright-cli --raw eval "JSON.stringify([...document.querySelectorAll('iframe')].map(f => ({id: f.id, name: f.name, src: f.src})))"
-```
+If the element might live in an iframe, enumerate the frames on the page
+and surface the candidates to QA in plain language ("I see N iframes — A is
+the main app, B is an ad, C is the chart widget. Which one should the test
+be switching into?") so they can choose by description. The playwright-cli
+skill covers both snapshot-based discovery (which surfaces iframe nodes in
+the aria tree along with surrounding structure) and DOM-query-based
+discovery via eval.
 
 ### Page state
-Verify you're on the right page:
-```bash
-playwright-cli --raw eval "JSON.stringify({url: location.href, title: document.title, readyState: document.readyState})"
-```
+If you suspect you're on the wrong page or the page hasn't finished
+loading, check URL, title, and `readyState` before drilling further. The
+playwright-cli skill covers page-state inspection via eval.
 
 ## Rephrase rules
 
@@ -254,61 +223,65 @@ QA may not understand your question or respond with something unclear.
 Escalate through simpler language (translated to QA's language at runtime):
 
 **Attempt 1 — Rephrase shorter:**
-Instead of "this may be because the wait isn't long enough, or the selector is genuinely wrong"
-say "Do you see this button on the screen? Yes or no?"
+Instead of "this may be because the wait isn't long enough, or the selector
+is genuinely wrong" say "Do you see this button on the screen? Yes or no?"
 
 **Attempt 2 — Yes/no question:**
 "Do you see [element description] on the screen right now?"
 
 **Attempt 3 — Default to investigation:**
-"I'll take a look myself" → investigate using the toolkit above, then report findings.
+"I'll take a look myself" → investigate using the toolkit above, then report
+findings.
 
-After investigating, always come back with a **concrete finding and proposed fix**.
-Never leave QA hanging with "I don't know."
+After investigating, always come back with a **concrete finding and proposed
+fix**. Never leave QA hanging with "I don't know."
 
 ## Important rules
 
-- **NEVER guess selectors from training data** — you MUST inspect the live DOM via CDP to discover the correct selector. Do not suggest a fix based on what you "think" the selector should be. Always pick the element (or snapshot/eval) first, read the real attributes, then propose the fix based on what you actually see.
-- **PREFER `pick_element` over snapshot/eval for any element-related failure** — letting QA point at the real element is more reliable than guessing from a DOM snapshot, regardless of app size. Use snapshot/eval only for non-element issues (timing, navigation, console errors) or to confirm details after picking.
-- **NEVER assume a failure is a bug** — always ask QA first
-- **NEVER modify test config files** — only touch test files and page objects
-- **ALWAYS use the project's wrapper API** — learn it from existing code, don't use raw browser/page calls
-- **Use targeted snapshots** (`--depth=3` or element-specific) to save tokens
-- **Use --raw flag** on playwright-cli eval to get clean output
-- **Redirect mocha stdout to file** — read only relevant lines, don't dump entire output into context
-- **Use HTTP IPC** via `walkthrough-hooker.js` + `WALKTHROUGH_PORT` env var. Requires Mocha ^10.2.0.
-- **NEVER fix without QA confirmation** — investigate and propose, but always ask "ok to apply?" before applying changes
-- **ALWAYS match error to pattern first** — read the error message and use the Error Pattern table to ask the right question
-- **ALWAYS report findings in plain language** — QA should never see playwright-cli commands, raw JSON, or technical jargon
-- **ALWAYS offer `pick_element` first** for any element-related failure (wrong selector, not interactable, assertion on element value, frame issue) — call it as the first investigation step, not as a fallback
-- **Use the rephrase escalation** when QA doesn't understand — simpler → yes/no → investigate yourself
+Correctness rules — don't bend these:
 
-## Manual mode contract
+- **NEVER run mocha or any test command.** The GUI runs the test suite. Your
+  role ends when the fix is applied. QA clicks Run in the GUI to verify.
+- **NEVER guess selectors from training data** — you MUST observe the real
+  element. For element-related failures, **always start with `pick_element`**
+  so QA shows you the right element; only fall back to playwright-cli DOM
+  inspection when pick is unavailable (QA declined, element not clickable
+  through the picker, or unattended).
+- **NEVER assume a failure is a bug** — always ask QA first.
+- **NEVER modify test config files** — only touch test files and page
+  objects.
+- **NEVER fix without QA confirmation in manual mode** — investigate and
+  propose, but always ask "ok to apply?" before applying changes (auto mode
+  applies directly).
+- **ALWAYS match the project's existing API style** — learn it from
+  existing code. If the project uses a wrapper (e.g.
+  `Ws.instance.client.$()`), follow it; if it uses plain `browser.$()` /
+  `$()`, follow that. Don't add or remove a wrapper layer the project
+  doesn't already use.
+- **ALWAYS report findings in plain language** — QA should never see
+  playwright-cli commands, raw JSON, or technical jargon.
 
-When the orchestrator's prompt begins with "You are in MANUAL mode", the rules are:
+Tool-choice preferences — defaults you should adapt:
 
-1. **Element-related failure → first action is to offer `pick_element`.** Before any snapshot/eval, call `ask_user` with options that include picking the element (e.g. `pick_login_button`). Only investigate via playwright-cli if QA declines or chooses an investigation option.
-   For this first ask_user (no CDP inspection has happened yet), use the raw error string itself as evidence in the Hypothesis line — e.g. "I think the selector is wrong because the error says `no such element`".
-2. After **every** CDP / playwright-cli inspection step (snapshot, eval, click, screenshot), call `ask_user` with:
-   - a `summary` formatted as **two lines**:
-     - **Hypothesis line** — "I think [root cause] because [evidence from CDP / pick / error]"
-     - **Invitation line** — "Any context I might be missing? (e.g. a step you normally do, a modal to dismiss, code you just changed) — just type and tell me."
-   - 2-3 `options` describing what you could do next
-   - `allowFreeText: true` — **mandatory in manual mode, no exceptions**
-3. Option id conventions:
-   - `apply_*` — applies a fix (will call `edit_file`)
-   - `pick_*` — calls `pick_element` (opens the GUI picker)
-   - any other snake_case — investigation step (e.g. `investigate_modal`)
-4. Do NOT call `edit_file` until QA chooses an option whose id starts with `apply_`.
-5. After QA chooses an `apply_*` option, call `edit_file` with the corresponding diff. The QA will then approve / reject the diff in the GUI.
-   **Exception:** if QA chooses an `apply_*` option AND provides `freeText` that adds new context not already in your hypothesis, item 6 takes precedence — do NOT call `edit_file`. Acknowledge the new context, re-investigate if needed, and call `ask_user` again with a revised hypothesis.
-6. **Hypothesis revision rule** — when QA's `freeText` response contains information not already in your hypothesis (e.g. "the cookie modal needs to close first", "this only fails after login"):
-   - Acknowledge the new context explicitly in your next message ("Got it — there's a cookie modal first")
-   - **Re-investigate** if the new context invalidates prior CDP findings (e.g. snapshot a different selector, check a different page state)
-   - Restate the **revised hypothesis** before calling `ask_user` again or proposing a fix
-   - Do NOT silently fold new context into an existing fix proposal — QA needs to see that you understood what they told you
+- **Prefer `pick_element` for element-related failures** when QA is at the
+  keyboard. Falling back to snapshot/eval is fine when QA declines, the
+  element can't be clicked through the picker (iframe wrappers, off-screen
+  elements), or you're running unattended.
+- **Prefer parseable output when extracting data via eval** — the
+  playwright-cli skill shows the flag.
+- **Prefer targeted / depth-limited snapshots** over full-page dumps to save
+  tokens — the playwright-cli skill shows the flags.
+- **Use the rephrase escalation** when QA doesn't understand — simpler →
+  yes/no → investigate yourself.
+- **Treat the starter phrasing table as examples**, not a script — rewrite
+  the question for the specific failure rather than reading the row
+  verbatim.
 
-Auto mode skips items 1-6 (no `ask_user`, no QA dialog). Only these rules still apply:
-- The `pick_element`-first preference for element-related failures — call `pick_element`, then `edit_file` directly.
-- The "NEVER guess selectors from training data" rule.
-- The "ALWAYS use the project's wrapper API" rule.
+## Mode
+
+The orchestrator may set `mode: "manual"`. In manual mode the only added
+rule is: **always call `ask_user` before `edit_file`**, and
+`allowFreeText: true` is forced on so QA can surface context your CDP
+inspection can't see (a step they normally do, a modal to dismiss, code
+they just changed). Auto mode skips the `ask_user` step and applies fixes
+directly after investigating.

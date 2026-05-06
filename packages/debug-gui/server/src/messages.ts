@@ -47,6 +47,10 @@ export type ClientCommand =
         // builds this from the user's selection in TestTree (a single it
         // node → "^<full title>$", a describe → "^<full title> ").
         grep?: string;
+        // Step-style suites: skip remaining tests (and disable retries)
+        // once any test fails. Toolbar checkbox; not persisted across
+        // sessions because it changes the whole-suite contract.
+        bailOnFailure?: boolean;
     }
     | { type: "cancel" }
     | { type: "continue" }

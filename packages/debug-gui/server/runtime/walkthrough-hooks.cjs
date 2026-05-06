@@ -25,6 +25,14 @@ const HTTP_TIMEOUT_MS = 1000;
 // when the fix keeps missing.
 const MAX_RETRIES = 5;
 
+// Step-style suites: each it depends on the previous it leaving the app in
+// the right state, so once one step fails the rest cascade. When the GUI
+// passes DEBUG_GUI_BAIL_ON_FAILURE=1 we (a) skip retries (the in-process
+// require cache means the agent's fix can't take effect mid-run anyway —
+// QA must click Run to fork a fresh process) and (b) ask Mocha to bail the
+// whole tree once this test is finalised as failed.
+const BAIL_ON_FAILURE = process.env.DEBUG_GUI_BAIL_ON_FAILURE === '1';
+
 let consecutiveFailures = 0;
 let lastSeenAt = Date.now();
 let watchdogTimer = null;
@@ -146,8 +154,12 @@ exports.mochaHooks = {
     // run once line#1's selector is healed. Without this, afterEach would
     // return, Mocha would mark failed and move to the next test, and QA would
     // have to click Run again just to discover the next broken line.
+    //
+    // BAIL_ON_FAILURE flips this off: step-style suites can't recover mid-run
+    // (state and module cache are both broken once step N fails), so retries
+    // just waste time before the inevitable Run-from-scratch.
     beforeEach: function () {
-        this.retries(MAX_RETRIES);
+        this.retries(BAIL_ON_FAILURE ? 0 : MAX_RETRIES);
     },
 
     afterEach: async function () {
@@ -176,6 +188,20 @@ exports.mochaHooks = {
             const resp = await httpGet('/hook/should-continue');
             if (resp && resp.shouldContinue === true) break;
             checkAndMaybeExit();
+        }
+
+        // Once continue lands and retries are off, propagate bail up the
+        // suite chain so Mocha skips the remaining siblings + outer
+        // describes after this test is recorded as failed. We walk the
+        // whole chain because Suite.bail only stops that one suite — for
+        // a tree like `describe { describe { it1 (failed); it2 } }` we
+        // want the OUTER describe to stop too.
+        if (BAIL_ON_FAILURE) {
+            let s = this.currentTest.parent;
+            while (s) {
+                if (typeof s.bail === 'function') s.bail(true);
+                s = s.parent;
+            }
         }
 
         await httpPost('/hook/status', { state: 'running', resumedAt: Date.now() });
