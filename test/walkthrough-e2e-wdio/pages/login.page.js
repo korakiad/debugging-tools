@@ -18,12 +18,12 @@ class LoginPage {
 
   // Fixed: password field selector
   get passwordField() {
-    return "#password";
+    return "inputXX#password";
   }
 
-  // WRONG: data-test value is "login-button", not "submit-btn"
+  // Fixed: login button selector
   get loginButton() {
-    return '[data-test="submit-btn"]';
+    return '[data-test="login-button"]';
   }
 }
 
