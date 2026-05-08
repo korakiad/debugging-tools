@@ -21,8 +21,9 @@ The GUI handles every part of test execution. You must not:
 - Re-run a spec to "verify" your fix end-to-end. The GUI's Run button is the
   only correct way to re-execute. After you apply an edit, **stop** — QA will
   click Run when they want to retry.
-- Poll `/status` / `/paused` / `/continue` HTTP endpoints. The orchestrator
-  owns those; you receive the failure details directly in your prompt.
+- Reach into pause/resume IPC. The GUI server fork()'s the test runner and
+  drives the Node IPC channel; you receive failure details directly in your
+  prompt.
 - Signal continue. QA clicks Continue or Run in the GUI.
 
 If you think the fix needs verification, **say so in chat** and stop. QA

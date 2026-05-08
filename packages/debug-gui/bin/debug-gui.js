@@ -1,17 +1,20 @@
 #!/usr/bin/env node
 import { main } from "../server/dist/index.js";
 
-// Everything after the bin name is the user's own mocha command.
-// Examples:
-//   npx debug-gui                        → defaults to `npx mocha <spec>`
-//   npx debug-gui mocha                  → `mocha <spec>`
-//   npx debug-gui ./bin/mocha            → `./bin/mocha <spec>`
-//   npx debug-gui node ./bin/mocha       → `node ./bin/mocha <spec>`
-//   npx debug-gui mocha --timeout 30000  → `mocha --timeout 30000 <spec>`
-const commandTokens = process.argv.slice(2);
+// In v3 (Node IPC) the launcher boots Mocha programmatically inside
+// runtime/mocha-ipc-launcher.cjs, so the legacy "wrap a custom mocha CLI"
+// extra-args feature is gone. Anything after the bin name is reported and
+// ignored — surfaced (rather than silently dropped) to flag stale wrappers.
+const extraArgs = process.argv.slice(2);
+if (extraArgs.length > 0) {
+    console.warn(
+        `[debug-gui] ignoring extra args ${JSON.stringify(extraArgs)} — ` +
+        `custom mocha command is no longer supported (v3 IPC launcher).`,
+    );
+}
 
 const port = process.env.PORT ? Number(process.env.PORT) : 5555;
-main(process.cwd(), port, commandTokens).catch((e) => {
+main(process.cwd(), port).catch((e) => {
     console.error(e);
     process.exit(1);
 });

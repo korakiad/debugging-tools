@@ -8,9 +8,8 @@ import { existsSync } from "fs";
 import { loadConfig, saveConfig } from "./config.js";
 import { discoverSuites } from "./discovery.js";
 import { SessionManager } from "./session.js";
-import { HookerClient } from "./hooker.js";
-import { MochaRunner, buildMochaCommand, spawnShellCommand, killTree } from "./runner.js";
-import { Orchestrator } from "./orchestrator.js";
+import { MochaRunner, buildMochaFork, spawnShellCommand, killTree } from "./runner.js";
+import { WorkerLink } from "./workerLink.js";
 import { createApp, WsHub } from "./server.js";
 import { buildSessionConfig } from "./agent.js";
 import { makeEditFileTool } from "./tools/editFile.js";
@@ -28,20 +27,15 @@ export const VERSION = "0.0.1";
 export async function main(
     cwd: string = process.cwd(),
     port: number = 5555,
-    commandTokens: string[] = [],
 ): Promise<void> {
     const config = loadConfig(cwd);
-    const customCommand = commandTokens.length > 0
-        ? { cmd: commandTokens[0], args: commandTokens.slice(1) }
-        : undefined;
     let suites = discoverSuites(cwd, {
         globs: config.discovery.globs,
         exclude: config.discovery.exclude,
     });
 
     const session = new SessionManager();
-    const hooker = new HookerClient();
-    const orch = new Orchestrator(session, hooker);
+    const link = new WorkerLink(session);
     const runner = new MochaRunner();
     const hub = new WsHub();
 
@@ -59,6 +53,21 @@ export async function main(
     // Lets pick_cancel kill the right child without leaking handles after
     // natural completion.
     const pickPids = new Map<string, number>();
+
+    // Kill every in-flight pick child and broadcast pick_done for each.
+    // Without this, agent_abort/cancel would leave the playwright-cli
+    // overlay injected in the test browser and the GUI's "Pick mode
+    // active" banner never clears (the banner is only dismissed by a
+    // matching pick_done). drainResolvers alone rejects the resolver
+    // map but doesn't touch the spawned children or the UI signal.
+    const killAllPicks = async () => {
+        const entries = [...pickPids.entries()];
+        pickPids.clear();
+        for (const [reqId, pid] of entries) {
+            try { await killTree(pid); } catch { /* already gone */ }
+            hub.broadcast({ type: "pick_done", reqId });
+        }
+    };
     const here = path.dirname(fileURLToPath(import.meta.url));
     const pickScriptPath = path.resolve(
         here,
@@ -80,7 +89,6 @@ export async function main(
     const app = createApp({
         cwd,
         loadInit: () => ({ suites, config, state: session.getState(), lsp: lspResult.status }),
-        hooker,
     });
 
     app.get("/api/screenshot/:name", (req, res) => {
@@ -130,6 +138,14 @@ export async function main(
     // suppress the rejection that abort() causes in sendAndWait().
     let currentAgentSession: Awaited<ReturnType<typeof copilot.createSession>> | null = null;
     let aborting = false;
+    // Trips the local Promise.race that wraps sendAndWait. The Copilot SDK's
+    // sendAndWait only resolves/rejects on session.idle / session.error from
+    // the CLI; abort() RPCs the CLI but doesn't unblock the local await. If
+    // the agent is mid-tool-call (e.g. Bash running playwright-cli), idle
+    // can lag tens of seconds, during which the GUI's spinner + Stop button
+    // stay visible and Stop feels dead. Tripping this rejects sendAndWait
+    // immediately so the catch/finally can clear UI state without waiting.
+    let agentSendReject: ((e: Error) => void) | null = null;
     let preRunPid: number | undefined;
     let preRunCanceled = false;
 
@@ -246,6 +262,11 @@ export async function main(
             if (!spec) return;
             if (currentAgentSession) {
                 aborting = true;
+                if (agentSendReject) {
+                    const reject = agentSendReject;
+                    agentSendReject = null;
+                    reject(new Error("superseded by new run"));
+                }
                 try { await currentAgentSession.abort(); } catch { /* ignore */ }
             }
             // End-to-end coverage: test/smoke.sh — pre-run happy-path + failure paths (Task 10)
@@ -280,18 +301,17 @@ export async function main(
                 }
             }
             // ──────────────────────────────────────────────────────
-            const mochaCmd = buildMochaCommand({
+            const forkSpec = buildMochaFork({
                 spec,
-                guiPort: port,
-                guiPid: process.pid,
-                customCommand,
                 grep: cmd.grep,
                 bailOnFailure: cmd.bailOnFailure,
             });
-            await hooker.reset();
-            await runner.start(mochaCmd);
+            // markRunning before attach so any IPC frame that arrives during
+            // worker boot finds currentSpec already set — WorkerLink uses
+            // currentSpec when reflecting status:running.
             session.markRunning(cmd.spec);
-            orch.start(500);
+            const child = await runner.start(forkSpec);
+            link.attach(child);
 
             let agentSession: Awaited<ReturnType<typeof copilot.createSession>> | null = null;
             try {
@@ -328,16 +348,23 @@ export async function main(
                     if (at === lastPausedAt) return;
                     lastPausedAt = at;
                     hub.broadcast({ type: "agent_thinking", active: true });
+                    const abortPromise = new Promise<never>((_, reject) => {
+                        agentSendReject = reject;
+                    });
                     try {
                         // sendAndWait blocks until session.idle so the spinner
                         // stays up until the agent actually finishes. Plain
                         // send() resolves as soon as the RPC is acknowledged.
+                        // Race against agentSendReject so an agent_abort or
+                        // cancel can break out without waiting for the SDK
+                        // to surface session.idle (the CLI may not emit it
+                        // until any in-flight tool call returns).
                         const f = snap.currentFailure;
                         const manualPreamble =
                             config.agent.mode === "manual"
                                 ? "You are in MANUAL mode. Always call ask_user before edit_file — the walkthrough SKILL describes the conversation pattern.\n\n"
                                 : "";
-                        await agentSession!.sendAndWait(
+                        await Promise.race([abortPromise, agentSession!.sendAndWait(
                             {
                                 prompt:
                                     manualPreamble +
@@ -363,7 +390,7 @@ export async function main(
                                     `only correct way to verify the fix.`,
                             },
                             config.agent.idleTimeoutMs,
-                        );
+                        )]);
                     } catch (e: any) {
                         if (aborting) {
                             hub.broadcast({ type: "chat_final", content: "[aborted by user]" });
@@ -372,6 +399,7 @@ export async function main(
                             console.error("agent.send failed:", e);
                         }
                     } finally {
+                        agentSendReject = null;
                         aborting = false;
                         hub.broadcast({ type: "agent_thinking", active: false });
                         hub.broadcast({ type: "agent_activity", label: "" });
@@ -429,12 +457,24 @@ export async function main(
             }
         }
         if (cmd.type === "continue") {
-            await hooker.postContinue();
+            link.sendResume();
             session.markResumed();
         }
         if (cmd.type === "agent_abort") {
             if (currentAgentSession) {
                 aborting = true;
+                // Trip the local race first (synchronous reject) so the
+                // catch+finally in onChange clears UI state immediately.
+                // Then RPC the CLI to actually halt the agent. Order
+                // matters: aborting=true must be set before the reject
+                // schedules its microtask, so the catch's `if (aborting)`
+                // branch routes to "[aborted by user]" instead of the
+                // generic error message.
+                if (agentSendReject) {
+                    const reject = agentSendReject;
+                    agentSendReject = null;
+                    reject(new Error("aborted by user"));
+                }
                 try {
                     await currentAgentSession.abort();
                 } catch (e: any) {
@@ -442,6 +482,7 @@ export async function main(
                     hub.broadcast({ type: "error", message: `Agent abort: ${e?.message ?? e}` });
                 }
             }
+            await killAllPicks();
             drainResolvers(editResolvers);
             drainResolvers(pickResolvers);
             drainResolvers(askResolvers);
@@ -454,20 +495,22 @@ export async function main(
             }
             if (currentAgentSession) {
                 aborting = true;
+                if (agentSendReject) {
+                    const reject = agentSendReject;
+                    agentSendReject = null;
+                    reject(new Error("cancelled by user"));
+                }
                 try { await currentAgentSession.abort(); } catch { /* ignore */ }
             }
-            await runner.kill();
-            orch.stop();
-            // Reset hooker BEFORE session so an in-flight pollOnce can't
-            // re-mark the session as paused right after we reset it.
-            // pollOnce reads hooker.getStatus() then session.getState();
-            // if it observed status=paused before we ran, then sees
-            // session.state=idle after reset, the existing logic would
-            // call hooker.getPaused() + session.markPaused() — flipping
-            // the snapshot back to paused. Resetting hooker first makes
-            // hooker.getPaused() throw, which the orchestrator's
-            // setInterval catch swallows.
-            await hooker.reset();
+            // Kill picks before sendStopAndKill — the latter waits up to
+            // 5 s for graceful worker shutdown, and we don't want the pick
+            // overlay lingering in the test browser during that wait.
+            await killAllPicks();
+            // Graceful stop with hard-kill fallback. Sends {type:'stop'} so
+            // afterEach throws → Mocha runs afterAll (WDIO deleteSession)
+            // → worker exits cleanly. Falls back to killTree() after 5 s
+            // if the worker is wedged (WDIO session hung, etc.).
+            await runner.sendStopAndKill();
             session.reset();
             drainResolvers(editResolvers);
             drainResolvers(pickResolvers);
@@ -562,7 +605,7 @@ export async function main(
 
 if (import.meta.url === `file://${process.argv[1]}`) {
     const port = process.env.PORT ? Number(process.env.PORT) : 5555;
-    main(process.cwd(), port, process.argv.slice(2)).catch((e) => {
+    main(process.cwd(), port).catch((e) => {
         console.error(e);
         process.exit(1);
     });

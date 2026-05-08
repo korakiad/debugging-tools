@@ -7,6 +7,7 @@ node_modules/
 
 # Local Claude Code settings (per-machine, not shared)
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
 
 # Local secrets for E2E specs (see .env.example for the contract)
 .env

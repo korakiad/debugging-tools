@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import http from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { createApp, WsHub } from "../src/server.js";
-import { HookerClient } from "../src/hooker.js";
 import type { PendingResolver } from "../src/resolvers.js";
 
 describe("ask_user WS round-trip", () => {
@@ -16,7 +15,6 @@ describe("ask_user WS round-trip", () => {
         const app = createApp({
             cwd: process.cwd(),
             loadInit: () => ({ suites: [], config: {} as any, state: { state: "idle" } }),
-            hooker: new HookerClient(),
         });
         const server = http.createServer(app);
         const wss = new WebSocketServer({ server, path: "/ws" });

@@ -5,7 +5,7 @@ Web GUI for walkthrough E2E debug sessions. Lets non-technical QA trigger a Moch
 ## What you get
 
 - Sidebar lists all specs discovered from your current working directory
-- Click Run → the tool spawns `mocha <spec>` with a bundled root-hook injected via `--require`
+- Click Run → the tool `fork()`'s a bundled Mocha launcher and talks to it over a Node IPC channel (no localhost HTTP, no PID polling)
 - Test fails → GUI pauses, shows failure details + stack
 - Agent inspects the live browser via CDP, proposes a file edit, you approve it
 - Click Continue → Mocha auto-retries the test from the top (up to 5 attempts)
@@ -70,17 +70,6 @@ debug-gui
 
 The browser opens at `http://localhost:5555`. Select a spec from the sidebar → Run → triage failures as they surface.
 
-### Custom mocha command
-
-If your project wraps mocha (bin script, wdio preset, custom reporter config), pass the command after `debug-gui`:
-
-```bash
-debug-gui ./bin/mocha --timeout 30000
-# → the tool spawns: ./bin/mocha --timeout 30000 <selected-spec>
-```
-
-Everything before the spec is forwarded verbatim.
-
 ### Port
 
 Default is `5555`. Override:
@@ -91,9 +80,9 @@ PORT=6000 debug-gui
 ## How retry works
 
 When a test fails and you approve a fix:
-1. The injected `afterEach` hook pauses and polls `/hook/should-continue`
-2. You click **Continue** in the GUI
-3. Hook returns → Mocha's built-in retry (`this.retries(5)`) replays the test from the top
+1. The injected `afterEach` hook sends a `paused` frame over the IPC channel and `await`s a resume promise
+2. You click **Continue** in the GUI → server writes `{type:'resume'}` over the IPC channel → the worker's resume promise resolves and `afterEach` returns
+3. Mocha's built-in retry (`this.retries(5)`) replays the test from the top
 4. `before` hooks do **not** re-run — your WDIO `browser` session survives across retries
 5. If the test still fails (maybe line#2 is also broken), it pauses again showing attempt 2/6
 6. After 5 exhausted retries, the test is marked failed and the suite continues
