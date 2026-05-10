@@ -201,11 +201,11 @@ describe("LogPanel", () => {
     it("renders an info notice between StatusHeader and the breadcrumb", () => {
         // After an approved edit during pause the server broadcasts a
         // `notice`. LogPanel surfaces it via ef-notification so QA can't
-        // miss the "click Run, not Continue" guidance.
+        // miss the "click Continue" guidance.
         useStore.setState({
             notice: {
                 kind: "info",
-                message: "Fix saved to disk. Click Run to re-execute the suite.",
+                message: "Fix saved. Click Continue to re-run the suite with the fix applied.",
             },
         });
         render(<LogPanel />);
@@ -215,7 +215,12 @@ describe("LogPanel", () => {
         expect(el).not.toBeNull();
         // ef-notification stores the message as a JS property (rendered into
         // shadow DOM), same pattern as StatusHeader's heading assertion.
-        expect(el?.message).toMatch(/click run/i);
+        // Literal-text regression: this exact string is what server/index.ts
+        // emits after a diff approval; if either side drifts the test fails
+        // (per the agent-prompt-vs-SKILL alignment lesson).
+        expect(el?.message).toBe(
+            "Fix saved. Click Continue to re-run the suite with the fix applied.",
+        );
         expect(el?.getAttribute("data-kind")).toBe("info");
     });
 

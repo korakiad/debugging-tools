@@ -18,16 +18,18 @@ The GUI handles every part of test execution. You must not:
 
 - Run `mocha`, `npx mocha`, `node ./bin/mocha`, `npm test`, or any other
   command that starts a test process.
-- Re-run a spec to "verify" your fix end-to-end. The GUI's Run button is the
-  only correct way to re-execute. After you apply an edit, **stop** — QA will
-  click Run when they want to retry.
+- Re-run a spec to "verify" your fix end-to-end. The GUI's Continue button
+  re-forks the worker so a fresh require cache picks up your edit — that is
+  the only correct way to re-execute. After you apply an edit, **stop** —
+  QA clicks Continue when they want to retry.
 - Reach into pause/resume IPC. The GUI server fork()'s the test runner and
   drives the Node IPC channel; you receive failure details directly in your
   prompt.
-- Signal continue. QA clicks Continue or Run in the GUI.
+- Signal continue or run. QA clicks Continue (re-fork after fix) or Run
+  (full restart) in the GUI.
 
 If you think the fix needs verification, **say so in chat** and stop. QA
-verifies by clicking Run.
+verifies by clicking Continue.
 
 ## What you do per pause
 
@@ -111,8 +113,9 @@ QA can type anything in any language. Interpret intent:
 
 When you have the fix, use `edit_file` to apply it. The GUI shows QA a diff
 to approve or reject. After the diff is resolved (approved or rejected),
-**stop**. Do not run anything to verify. QA clicks Run when they want to
-re-execute the suite.
+**stop**. Do not run anything to verify. QA clicks Continue when they want
+to re-execute the suite — the GUI re-forks the worker so the fix is picked
+up against a fresh require cache.
 
 If you're confident no fix is appropriate (environment issue, flaky test,
 out of scope), say so in chat and stop. QA decides whether to skip or fix
@@ -242,7 +245,7 @@ fix**. Never leave QA hanging with "I don't know."
 Correctness rules — don't bend these:
 
 - **NEVER run mocha or any test command.** The GUI runs the test suite. Your
-  role ends when the fix is applied. QA clicks Run in the GUI to verify.
+  role ends when the fix is applied. QA clicks Continue in the GUI to verify.
 - **NEVER guess selectors from training data** — you MUST observe the real
   element. For element-related failures, **always start with `pick_element`**
   so QA shows you the right element; only fall back to playwright-cli DOM

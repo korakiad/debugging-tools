@@ -10,6 +10,7 @@ import { discoverSuites } from "./discovery.js";
 import { SessionManager } from "./session.js";
 import { MochaRunner, buildMochaFork, spawnShellCommand, killTree } from "./runner.js";
 import { WorkerLink } from "./workerLink.js";
+import { ChromeManager } from "./chromeManager.js";
 import { createApp, WsHub } from "./server.js";
 import { buildSessionConfig } from "./agent.js";
 import { makeEditFileTool } from "./tools/editFile.js";
@@ -37,11 +38,23 @@ export async function main(
     const session = new SessionManager();
     const link = new WorkerLink(session);
     const runner = new MochaRunner();
+    const chrome = new ChromeManager();
     const hub = new WsHub();
+
+    // Continue stops the current worker and forks a new one for the same spec
+    // (fresh require cache → agent's edit takes effect). `switchingWorkers`
+    // suppresses the exit/cleanup handlers below during that swap so the GUI
+    // doesn't flash mocha_exit / done between forks. Last-run options drive
+    // the re-fork.
+    let switchingWorkers = false;
+    let lastRunOpts:
+        | { spec: string; specRel: string; grep?: string; bailOnFailure?: boolean }
+        | null = null;
 
     runner.on("stdout", (text: string) => hub.broadcast({ type: "mocha_log", stream: "stdout", text }));
     runner.on("stderr", (text: string) => hub.broadcast({ type: "mocha_log", stream: "stderr", text }));
     runner.on("exit", (code: number | null) => {
+        if (switchingWorkers) return; // worker swap, not a session-end
         hub.broadcast({ type: "mocha_exit", code });
         if (session.getState().state !== "paused") session.markDone();
     });
@@ -66,6 +79,18 @@ export async function main(
         for (const [reqId, pid] of entries) {
             try { await killTree(pid); } catch { /* already gone */ }
             hub.broadcast({ type: "pick_done", reqId });
+        }
+    };
+
+    // Tell the UI to clear any open prompt panels driven by ask_user
+    // tool calls. drainResolvers rejects the agent-side promise but
+    // doesn't touch the UI's pendingPrompt state — without an explicit
+    // prompt_done broadcast the panel sticks after Stop. Call this
+    // BEFORE drainResolvers(askResolvers) so the reqIds are still in
+    // the map.
+    const closeAllPrompts = () => {
+        for (const reqId of askResolvers.keys()) {
+            hub.broadcast({ type: "prompt_done", reqId });
         }
     };
     const here = path.dirname(fileURLToPath(import.meta.url));
@@ -149,9 +174,88 @@ export async function main(
     let preRunPid: number | undefined;
     let preRunCanceled = false;
 
+    // Tracked so Run/Continue can off the prior listener + exit handler
+    // before installing fresh ones for the new agent session. Without this
+    // the closures over the old (aborted) agent session would still fire
+    // on subsequent pauses and call sendAndWait on a dead session — the
+    // observed "spinner stuck, Stop does nothing" symptom.
+    let currentOnChange: ((snap: ReturnType<typeof session.getState>) => void) | null = null;
+    let currentExitHandler: (() => void) | null = null;
+
+    // Forks the Mocha worker, attaches the IPC link, and records the options
+    // so a later Continue can re-fork the same spec. markRunning happens
+    // before attach so any IPC frame arriving during boot finds currentSpec
+    // already set — WorkerLink uses currentSpec when reflecting status:running.
+    //
+    // Idempotently ensures a server-managed Chrome is running and threads
+    // its CDP debuggerAddress into the worker via DEBUG_GUI_ATTACH_CDP.
+    // The worker's launcher monkey-patches webdriverio.remote() to inject
+    // `goog:chromeOptions.debuggerAddress`, so consumer wdio-setup attaches
+    // instead of launching — Chrome survives the worker swap on Continue.
+    //
+    // Run is responsible for calling `chrome.kill()` BEFORE this when the
+    // user wants a fresh browser; Continue must NOT kill so the running
+    // page state (login, navigation) is preserved across the re-fork.
+    async function startMochaWorker(opts: {
+        spec: string;
+        specRel: string;
+        grep?: string;
+        bailOnFailure?: boolean;
+    }): Promise<void> {
+        const handle = await chrome.launch();
+        const forkSpec = buildMochaFork({
+            spec: opts.spec,
+            grep: opts.grep,
+            bailOnFailure: opts.bailOnFailure,
+        });
+        forkSpec.env.DEBUG_GUI_ATTACH_CDP = handle.debuggerAddress;
+        session.markRunning(opts.specRel);
+        const child = await runner.start(forkSpec);
+        link.attach(child);
+        lastRunOpts = opts;
+    }
+
+    // Fully tears down the current agent: trips local race, aborts the
+    // mid-flight message, AND disconnects the session. abort() alone is
+    // not enough — per the Copilot SDK docs it only cancels the current
+    // *message*, "the session remains valid and can continue to be used."
+    // In-flight tool calls (Bash/playwright-cli subprocesses, streaming
+    // LLM responses) keep firing events on the original session, which
+    // bleed through stale `assistant.message` / `command.execute`
+    // listeners as background activity after Stop. disconnect() severs
+    // the session connection so those events stop.
+    //
+    // Run + Continue call this before creating a new session;
+    // agent_abort + cancel call it as the terminal teardown.
+    async function tearDownCurrentAgent(reason: string): Promise<void> {
+        if (agentSendReject) {
+            aborting = true;
+            const reject = agentSendReject;
+            agentSendReject = null;
+            reject(new Error(reason));
+        }
+        if (currentAgentSession) {
+            const sess = currentAgentSession;
+            currentAgentSession = null; // prevent re-entry
+            try { await sess.abort(); } catch { /* ignore */ }
+            try { await sess.disconnect(); } catch { /* ignore */ }
+        }
+    }
+
+    // Stale-tool guard: when Stop / Cancel / Continue tears down the agent
+    // session, currentAgentSession is null'd before the disconnect await
+    // resolves. The Copilot SDK can still invoke our tool callbacks during
+    // that window from buffered events. Without this gate, a late ask_user
+    // creates a new prompt panel AFTER "[aborted by user]" — the user
+    // observed this as a stuck prompt panel post-Stop.
+    const isAgentTornDown = () => currentAgentSession === null;
+
     const tools = [
         makeEditFileTool({
             onPropose: (file, oldCode, newCode) => {
+                if (isAgentTornDown()) {
+                    return Promise.reject(new Error("agent session torn down"));
+                }
                 const reqId = Math.random().toString(36).slice(2);
                 return new Promise((resolve, reject) => {
                     editResolvers.set(reqId, { resolve, reject });
@@ -161,6 +265,9 @@ export async function main(
         }),
         makePickElementTool({
             onPick: (hint) => {
+                if (isAgentTornDown()) {
+                    return Promise.reject(new Error("agent session torn down"));
+                }
                 // Spawn playwright-cli's pick-element script against the test
                 // runner's CDP port. The script injects hover-highlight + click
                 // handlers into the *test* browser (not debug-gui's own UI) and
@@ -173,11 +280,17 @@ export async function main(
                 // and we don't leak sessions across runs.
                 const reqId = Math.random().toString(36).slice(2);
                 const sessionName = `dgui_pick_${reqId}`;
+                // Use the live Chrome's auto-picked port. ChromeManager
+                // launches with --remote-debugging-port=0, so config.cdp.port
+                // (legacy default 9222) is no longer where Chrome listens.
+                // Falling back to config.cdp.port preserves behaviour for
+                // any out-of-band CDP user during the transition.
+                const cdpPort = chrome.getHandle()?.port ?? config.cdp.port;
                 hub.broadcast({ type: "pick", reqId, hint });
                 return new Promise<Record<string, unknown>>((resolve, reject) => {
                     pickResolvers.set(reqId, { resolve, reject });
                     const cmd = [
-                        `npx playwright-cli attach --cdp="http://localhost:${config.cdp.port}" --session=${sessionName}`,
+                        `npx playwright-cli attach --cdp="http://localhost:${cdpPort}" --session=${sessionName}`,
                         `npx playwright-cli -s=${sessionName} --raw run-code --filename="${pickScriptPath}"`,
                     ].join(" && ");
                     const child = spawn(cmd, { shell: true, env: process.env });
@@ -236,6 +349,9 @@ export async function main(
         }),
         makeAskUserTool({
             onAsk: (summary, options, allowFreeText) => {
+                if (isAgentTornDown()) {
+                    return Promise.reject(new Error("agent session torn down"));
+                }
                 // Manual mode always allows free text so QA can surface context
                 // the agent's CDP inspection can't see; force it here so a model
                 // that disables it in args can't override the mode.
@@ -256,19 +372,163 @@ export async function main(
         }),
     ];
 
+    // Creates a fresh agent session for the just-started worker. Both Run
+    // and Continue call this AFTER startMochaWorker so each fork gets a
+    // clean agent context — reusing an aborted session leaves sendAndWait
+    // pending forever (no idle event fires) and the spinner sticks.
+    //
+    // Off's any prior listener + exit handler before installing fresh
+    // ones; the prior closures referenced the now-aborted agent session.
+    async function setupAgentForRun(): Promise<void> {
+        // Drop stale references — these are closures over the previous
+        // (aborted) agent session.
+        if (currentOnChange) {
+            session.events.off("change", currentOnChange);
+            currentOnChange = null;
+        }
+        if (currentExitHandler) {
+            runner.off("exit", currentExitHandler);
+            currentExitHandler = null;
+        }
+
+        let agentSession: Awaited<ReturnType<typeof copilot.createSession>> | null = null;
+        try {
+            agentSession = await copilot.createSession(
+                buildSessionConfig({
+                    tools,
+                    onPick: () => Promise.resolve({}),
+                    onEdit: async () => ({ approved: true }),
+                })
+            );
+            currentAgentSession = agentSession;
+        } catch (e: any) {
+            hub.broadcast({ type: "error", message: `Copilot session: ${e?.message ?? e}` });
+            console.error("createSession failed:", e);
+            return;
+        }
+        if (!agentSession) return;
+
+        // Stale-session guard: when Stop fires tearDownCurrentAgent, the
+        // SDK's `await sess.disconnect()` may resolve while events are still
+        // buffered in flight. Without this check those late events bleed
+        // through as new chat lines and "calling ask_user" activity AFTER
+        // "[aborted by user]". Compare the closure-captured session with
+        // the module-level currentAgentSession (null'd in tearDown) to drop
+        // them.
+        const mySession = agentSession;
+        agentSession.on("assistant.message", (ev: any) => {
+            if (mySession !== currentAgentSession) return;
+            const content: string = ev?.data?.content ?? "";
+            if (content && !aborting) hub.broadcast({ type: "chat_final", content });
+        });
+        agentSession.on("command.execute", (ev: any) => {
+            if (mySession !== currentAgentSession) return;
+            const name: string = ev?.data?.name ?? ev?.data?.tool ?? "tool";
+            hub.broadcast({ type: "agent_activity", label: `calling ${name}` });
+        });
+        agentSession.on("command.completed", () => {
+            if (mySession !== currentAgentSession) return;
+            hub.broadcast({ type: "agent_activity", label: "" });
+        });
+
+        let lastPausedAt = 0;
+        const onChange = async (snap: ReturnType<typeof session.getState>) => {
+            if (snap.state !== "paused" || !snap.currentFailure) return;
+            const at = snap.currentFailure.pausedAt ?? 0;
+            if (at === lastPausedAt) return;
+            lastPausedAt = at;
+            hub.broadcast({ type: "agent_thinking", active: true });
+            const abortPromise = new Promise<never>((_, reject) => {
+                agentSendReject = reject;
+            });
+            try {
+                // sendAndWait blocks until session.idle so the spinner
+                // stays up until the agent actually finishes. Plain
+                // send() resolves as soon as the RPC is acknowledged.
+                // Race against agentSendReject so an agent_abort or
+                // cancel can break out without waiting for the SDK
+                // to surface session.idle (the CLI may not emit it
+                // until any in-flight tool call returns).
+                const f = snap.currentFailure;
+                const manualPreamble =
+                    config.agent.mode === "manual"
+                        ? "You are in MANUAL mode. Always call ask_user before edit_file — the walkthrough SKILL describes the conversation pattern.\n\n"
+                        : "";
+                await Promise.race([abortPromise, agentSession!.sendAndWait(
+                    {
+                        prompt:
+                            manualPreamble +
+                            `A mocha test just failed and the walkthrough hook paused execution.\n\n` +
+                            `Failure details:\n` +
+                            `  test:  ${f.test}\n` +
+                            `  suite: ${f.suite ?? "(none)"}\n` +
+                            `  file:  ${f.file}\n` +
+                            `  error: ${f.error}\n` +
+                            `  stack:\n${f.stack}\n\n` +
+                            `The test browser is reachable via CDP at http://localhost:${chrome.getHandle()?.port ?? config.cdp.port}.\n\n` +
+                            `Decide your inspection approach using the walkthrough SKILL:\n` +
+                            `- If this is an element-related failure (selector miss, "not found", ` +
+                            `"not interactable", stale element, wrong-element assertions), call the ` +
+                            `pick_element tool first so QA shows you the real element — that is more ` +
+                            `reliable for selector work than DOM inspection.\n` +
+                            `- For non-element failures (timing, navigation, console errors, network, ` +
+                            `page state, frame topology), use the playwright-cli skill — its references ` +
+                            `cover the attach/-s/detach pattern and each inspection capability.\n\n` +
+                            `Do NOT run mocha, npm test, or any test command yourself. The GUI ` +
+                            `orchestrates test execution. After you apply the fix via edit_file, stop ` +
+                            `and let QA click Continue in the GUI to re-execute the suite with the ` +
+                            `fix applied — the GUI re-forks the worker so a fresh require cache ` +
+                            `picks up your edit.`,
+                    },
+                    config.agent.idleTimeoutMs,
+                )]);
+            } catch (e: any) {
+                if (aborting) {
+                    hub.broadcast({ type: "chat_final", content: "[aborted by user]" });
+                } else {
+                    hub.broadcast({ type: "error", message: `Agent send: ${e?.message ?? e}` });
+                    console.error("agent.send failed:", e);
+                }
+            } finally {
+                agentSendReject = null;
+                aborting = false;
+                hub.broadcast({ type: "agent_thinking", active: false });
+                hub.broadcast({ type: "agent_activity", label: "" });
+            }
+        };
+        currentOnChange = onChange;
+        session.events.on("change", onChange);
+
+        // Self-re-registering exit handler so the listener survives a
+        // Continue worker swap. During swap, switchingWorkers is true →
+        // re-arm and skip cleanup. On a real session-end (Stop/Cancel/done),
+        // switchingWorkers is false → tear down. currentExitHandler tracks
+        // the live registration so the next setupAgentForRun call can
+        // remove it before installing its own.
+        const installRunCleanup = () => {
+            const handler = () => {
+                if (switchingWorkers) {
+                    installRunCleanup();
+                    return;
+                }
+                if (currentOnChange) {
+                    session.events.off("change", currentOnChange);
+                    currentOnChange = null;
+                }
+                currentAgentSession = null;
+                currentExitHandler = null;
+            };
+            currentExitHandler = handler;
+            runner.once("exit", handler);
+        };
+        installRunCleanup();
+    }
+
     hub.onMessage(async (cmd) => {
         if (cmd.type === "run") {
             const spec = suites.find((s) => s.relPath === cmd.spec)?.absPath;
             if (!spec) return;
-            if (currentAgentSession) {
-                aborting = true;
-                if (agentSendReject) {
-                    const reject = agentSendReject;
-                    agentSendReject = null;
-                    reject(new Error("superseded by new run"));
-                }
-                try { await currentAgentSession.abort(); } catch { /* ignore */ }
-            }
+            await tearDownCurrentAgent("superseded by new run");
             // End-to-end coverage: test/smoke.sh — pre-run happy-path + failure paths (Task 10)
             // ── Pre-run step ─────────────────────────────────────
             if (config.preRun && !cmd.skipPreRun) {
@@ -301,116 +561,17 @@ export async function main(
                 }
             }
             // ──────────────────────────────────────────────────────
-            const forkSpec = buildMochaFork({
+            // Fresh browser per Run: tear down any prior Chrome so the new
+            // session starts with a clean profile. Continue takes the
+            // opposite path (no kill → preserve login/navigation state).
+            await chrome.kill();
+            await startMochaWorker({
                 spec,
+                specRel: cmd.spec,
                 grep: cmd.grep,
                 bailOnFailure: cmd.bailOnFailure,
             });
-            // markRunning before attach so any IPC frame that arrives during
-            // worker boot finds currentSpec already set — WorkerLink uses
-            // currentSpec when reflecting status:running.
-            session.markRunning(cmd.spec);
-            const child = await runner.start(forkSpec);
-            link.attach(child);
-
-            let agentSession: Awaited<ReturnType<typeof copilot.createSession>> | null = null;
-            try {
-                agentSession = await copilot.createSession(
-                    buildSessionConfig({
-                        tools,
-                        onPick: () => Promise.resolve({}),
-                        onEdit: async () => ({ approved: true }),
-                    })
-                );
-                currentAgentSession = agentSession;
-            } catch (e: any) {
-                hub.broadcast({ type: "error", message: `Copilot session: ${e?.message ?? e}` });
-                console.error("createSession failed:", e);
-            }
-
-            if (agentSession) {
-                agentSession.on("assistant.message", (ev: any) => {
-                    const content: string = ev?.data?.content ?? "";
-                    if (content && !aborting) hub.broadcast({ type: "chat_final", content });
-                });
-                agentSession.on("command.execute", (ev: any) => {
-                    const name: string = ev?.data?.name ?? ev?.data?.tool ?? "tool";
-                    hub.broadcast({ type: "agent_activity", label: `calling ${name}` });
-                });
-                agentSession.on("command.completed", () => {
-                    hub.broadcast({ type: "agent_activity", label: "" });
-                });
-
-                let lastPausedAt = 0;
-                const onChange = async (snap: ReturnType<typeof session.getState>) => {
-                    if (snap.state !== "paused" || !snap.currentFailure) return;
-                    const at = snap.currentFailure.pausedAt ?? 0;
-                    if (at === lastPausedAt) return;
-                    lastPausedAt = at;
-                    hub.broadcast({ type: "agent_thinking", active: true });
-                    const abortPromise = new Promise<never>((_, reject) => {
-                        agentSendReject = reject;
-                    });
-                    try {
-                        // sendAndWait blocks until session.idle so the spinner
-                        // stays up until the agent actually finishes. Plain
-                        // send() resolves as soon as the RPC is acknowledged.
-                        // Race against agentSendReject so an agent_abort or
-                        // cancel can break out without waiting for the SDK
-                        // to surface session.idle (the CLI may not emit it
-                        // until any in-flight tool call returns).
-                        const f = snap.currentFailure;
-                        const manualPreamble =
-                            config.agent.mode === "manual"
-                                ? "You are in MANUAL mode. Always call ask_user before edit_file — the walkthrough SKILL describes the conversation pattern.\n\n"
-                                : "";
-                        await Promise.race([abortPromise, agentSession!.sendAndWait(
-                            {
-                                prompt:
-                                    manualPreamble +
-                                    `A mocha test just failed and the walkthrough hook paused execution.\n\n` +
-                                    `Failure details:\n` +
-                                    `  test:  ${f.test}\n` +
-                                    `  suite: ${f.suite ?? "(none)"}\n` +
-                                    `  file:  ${f.file}\n` +
-                                    `  error: ${f.error}\n` +
-                                    `  stack:\n${f.stack}\n\n` +
-                                    `The test browser is reachable via CDP at http://localhost:${config.cdp.port}.\n\n` +
-                                    `Decide your inspection approach using the walkthrough SKILL:\n` +
-                                    `- If this is an element-related failure (selector miss, "not found", ` +
-                                    `"not interactable", stale element, wrong-element assertions), call the ` +
-                                    `pick_element tool first so QA shows you the real element — that is more ` +
-                                    `reliable for selector work than DOM inspection.\n` +
-                                    `- For non-element failures (timing, navigation, console errors, network, ` +
-                                    `page state, frame topology), use the playwright-cli skill — its references ` +
-                                    `cover the attach/-s/detach pattern and each inspection capability.\n\n` +
-                                    `Do NOT run mocha, npm test, or any test command yourself. The GUI ` +
-                                    `orchestrates test execution. After you apply the fix via edit_file, stop ` +
-                                    `and let QA click Run in the GUI to re-execute the suite — that is the ` +
-                                    `only correct way to verify the fix.`,
-                            },
-                            config.agent.idleTimeoutMs,
-                        )]);
-                    } catch (e: any) {
-                        if (aborting) {
-                            hub.broadcast({ type: "chat_final", content: "[aborted by user]" });
-                        } else {
-                            hub.broadcast({ type: "error", message: `Agent send: ${e?.message ?? e}` });
-                            console.error("agent.send failed:", e);
-                        }
-                    } finally {
-                        agentSendReject = null;
-                        aborting = false;
-                        hub.broadcast({ type: "agent_thinking", active: false });
-                        hub.broadcast({ type: "agent_activity", label: "" });
-                    }
-                };
-                session.events.on("change", onChange);
-                runner.once("exit", () => {
-                    session.events.off("change", onChange);
-                    currentAgentSession = null;
-                });
-            }
+            await setupAgentForRun();
         }
         if (cmd.type === "diff_decision") {
             const resolver = editResolvers.get(cmd.reqId);
@@ -418,21 +579,17 @@ export async function main(
                 resolver.resolve({ approved: cmd.action === "approved", reason: cmd.reason });
                 editResolvers.delete(cmd.reqId);
             }
-            // After QA approves a fix during pause, tell them not to click
-            // Continue: Mocha's per-process require cache holds the spec /
-            // page-object modules from suite-load, so the retry's in-flight
-            // it() body will still see the OLD selector (the agent's edit
-            // changed disk, not memory). Continue → same error; Run → fresh
-            // process → fix takes effect. See login.spec.js + login.page.js
-            // for the canonical case.
+            // QA's approval of the fix doesn't itself re-run anything; the
+            // GUI explicitly tells them what to click next. Continue is the
+            // right button now — it stops the current worker and forks a
+            // fresh one so the agent's edit is picked up.
             if (cmd.action === "approved") {
                 hub.broadcast({
                     type: "notice",
                     kind: "info",
                     message:
-                        "Fix saved to disk. Mocha can't reload modules mid-run, " +
-                        "so clicking Continue will hit the same error. " +
-                        "Click Run to re-execute the suite with the fix applied.",
+                        "Fix saved. Click Continue to re-run the suite with " +
+                        "the fix applied.",
                 });
             }
         }
@@ -457,35 +614,58 @@ export async function main(
             }
         }
         if (cmd.type === "continue") {
-            link.sendResume();
-            session.markResumed();
+            // Continue stops the current worker and re-forks the same spec
+            // so the agent's on-disk edits land in a fresh require cache.
+            // Suite-level closures (`const loginPage = new LoginPage()`)
+            // are bound to the cached class — only a re-fork picks them up.
+            // Reentrancy guard: drop racing Continue clicks.
+            if (!lastRunOpts || switchingWorkers) return;
+            const failure = session.getState().currentFailure;
+            if (!failure) return;
+
+            switchingWorkers = true;
+            try {
+                // Halt the agent's in-flight turn AND its session — the new
+                // fork gets a fresh agent (setupAgentForRun below). Reusing
+                // the aborted session leaves sendAndWait pending forever
+                // (no idle event fires post-abort), which manifests as a
+                // stuck "Agent thinking" spinner that Stop can't clear.
+                await tearDownCurrentAgent("superseded by continue");
+                await killAllPicks();
+                closeAllPrompts();
+                drainResolvers(editResolvers);
+                drainResolvers(pickResolvers);
+                drainResolvers(askResolvers);
+
+                // Graceful stop with hard-kill fallback (5 s cap inside
+                // sendStopAndKill). Browser stays alive — server-managed
+                // Chrome (chromeManager) preserves login/navigation state
+                // across the swap.
+                await runner.sendStopAndKill();
+                link.detach();
+                await startMochaWorker(lastRunOpts);
+                await setupAgentForRun();
+            } finally {
+                switchingWorkers = false;
+            }
         }
         if (cmd.type === "agent_abort") {
-            if (currentAgentSession) {
-                aborting = true;
-                // Trip the local race first (synchronous reject) so the
-                // catch+finally in onChange clears UI state immediately.
-                // Then RPC the CLI to actually halt the agent. Order
-                // matters: aborting=true must be set before the reject
-                // schedules its microtask, so the catch's `if (aborting)`
-                // branch routes to "[aborted by user]" instead of the
-                // generic error message.
-                if (agentSendReject) {
-                    const reject = agentSendReject;
-                    agentSendReject = null;
-                    reject(new Error("aborted by user"));
-                }
-                try {
-                    await currentAgentSession.abort();
-                } catch (e: any) {
-                    aborting = false;
-                    hub.broadcast({ type: "error", message: `Agent abort: ${e?.message ?? e}` });
-                }
-            }
+            // tearDownCurrentAgent: rejects local race → onChange's
+            // catch+finally clears UI; then abort + disconnect the session
+            // so in-flight tool calls stop firing background events.
+            await tearDownCurrentAgent("aborted by user");
             await killAllPicks();
+            closeAllPrompts();
             drainResolvers(editResolvers);
             drainResolvers(pickResolvers);
             drainResolvers(askResolvers);
+            // Defensive UI clear: onChange's finally already clears these
+            // on the rejector path, but if agentSendReject was null
+            // (sendAndWait already resolved, or consumed by a prior
+            // Continue) the spinner can stick. Force-clear so Stop
+            // always gives the user agency back.
+            hub.broadcast({ type: "agent_thinking", active: false });
+            hub.broadcast({ type: "agent_activity", label: "" });
         }
         if (cmd.type === "cancel") {
             if (preRunPid) {
@@ -493,28 +673,28 @@ export async function main(
                 await killTree(preRunPid);
                 preRunPid = undefined;
             }
-            if (currentAgentSession) {
-                aborting = true;
-                if (agentSendReject) {
-                    const reject = agentSendReject;
-                    agentSendReject = null;
-                    reject(new Error("cancelled by user"));
-                }
-                try { await currentAgentSession.abort(); } catch { /* ignore */ }
-            }
+            await tearDownCurrentAgent("cancelled by user");
             // Kill picks before sendStopAndKill — the latter waits up to
             // 5 s for graceful worker shutdown, and we don't want the pick
             // overlay lingering in the test browser during that wait.
             await killAllPicks();
+            closeAllPrompts();
             // Graceful stop with hard-kill fallback. Sends {type:'stop'} so
             // afterEach throws → Mocha runs afterAll (WDIO deleteSession)
             // → worker exits cleanly. Falls back to killTree() after 5 s
             // if the worker is wedged (WDIO session hung, etc.).
             await runner.sendStopAndKill();
+            // Stop ends the run AND the browser session; tear down Chrome
+            // so the next Run gets a clean profile. Continue takes the
+            // opposite path (no kill).
+            await chrome.kill();
             session.reset();
             drainResolvers(editResolvers);
             drainResolvers(pickResolvers);
             drainResolvers(askResolvers);
+            // Stop ends the run; a subsequent Continue would have nothing to
+            // resume into, so clear the last-run snapshot.
+            lastRunOpts = null;
         }
         if (cmd.type === "settings_update") {
             const patch: Parameters<typeof saveConfig>[1] = {};
@@ -577,12 +757,29 @@ export async function main(
                         exclude: nextCfg.discovery.exclude,
                     });
                     hub.broadcast({ type: "suites_updated", suites });
+                    // If the previously-Run spec is no longer discoverable
+                    // (excluded by the new globs), drop the snapshot so a
+                    // stray Continue is a no-op.
+                    if (lastRunOpts && !suites.some((s) => s.relPath === lastRunOpts!.specRel)) {
+                        lastRunOpts = null;
+                    }
                 }
             } catch (e: any) {
                 hub.broadcast({ type: "error", message: `Save settings: ${e?.message ?? e}` });
             }
         }
     });
+
+    // Best-effort cleanup on GUI shutdown: tear down the worker AND the
+    // server-managed Chrome. Without this, killing the GUI window leaves
+    // an orphaned Chrome at a port the next launch would clash with.
+    const shutdown = async () => {
+        try { await runner.sendStopAndKill(); } catch { /* ignore */ }
+        try { await chrome.kill(); } catch { /* ignore */ }
+    };
+    process.once("SIGINT", () => { shutdown().finally(() => process.exit(0)); });
+    process.once("SIGTERM", () => { shutdown().finally(() => process.exit(0)); });
+    process.once("beforeExit", () => { void shutdown(); });
 
     httpServer.listen(port, async () => {
         const url = `http://localhost:${port}`;

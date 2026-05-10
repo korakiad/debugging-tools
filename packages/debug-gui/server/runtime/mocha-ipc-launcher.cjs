@@ -14,6 +14,87 @@ const fs = require('fs');
 const { pathToFileURL } = require('url');
 const { installHooks, registerIpcHandlers } = require('./mocha-ipc-hooks.cjs');
 
+// Server-managed Chrome handoff. When DEBUG_GUI_ATTACH_CDP is set (the
+// debug-gui server has launched its own Chrome and wants every fork to
+// attach to it instead of launching), monkey-patch webdriverio.remote()
+// to inject `goog:chromeOptions.debuggerAddress`. This converts the
+// consumer's `remote({...})` from launch-mode to attach-mode without
+// requiring any change to their wdio-setup.js — survives across
+// re-forks on Continue, preserving login/navigation state.
+//
+// Must run BEFORE loadConsumerRequires() requires wdio-setup.js
+// (which in turn requires webdriverio).
+patchWebdriverIORemoteIfAttach();
+
+function patchWebdriverIORemoteIfAttach() {
+    const attach = process.env.DEBUG_GUI_ATTACH_CDP;
+    if (!attach) return;
+    let wdio;
+    try {
+        wdio = require('webdriverio');
+    } catch {
+        // Consumer doesn't use webdriverio — patch is a no-op. Other
+        // browser libraries are out of scope for v1.
+        return;
+    }
+    if (!wdio || typeof wdio.remote !== 'function' || wdio.__dguiPatched) return;
+    const origRemote = wdio.remote;
+    wdio.remote = async function patchedRemote(opts, ...rest) {
+        try {
+            opts = opts || {};
+            opts.capabilities = opts.capabilities || {};
+            const chromeOpts = { ...(opts.capabilities['goog:chromeOptions'] || {}) };
+            chromeOpts.debuggerAddress = attach;
+            // Strip launch-only args; Chrome is already running and Chrome
+            // ignores them on attach, but pruning makes the cap diff clear.
+            if (chromeOpts.args) delete chromeOpts.args;
+            opts.capabilities['goog:chromeOptions'] = chromeOpts;
+        } catch {
+            /* fall through to origRemote with original opts */
+        }
+        const browser = await origRemote(opts, ...rest);
+        // Defense-in-depth wrap of deleteSession: in chromedriver's
+        // debuggerAddress mode, deleteSession already does NOT kill the
+        // attached Chrome (chromedriver detects the external browser and
+        // skips Quit's process-close path), so the unwrapped call is
+        // benign. We only attempt to wrap in case a future WDIO/driver
+        // combo regresses that behavior.
+        //
+        // WebdriverIO's Browser object is a Proxy and may treat method
+        // assignments as read-only ("Cannot assign to read only
+        // property 'deleteSession'"). Try Object.defineProperty as a
+        // fallback; if BOTH fail, skip the wrap entirely and rely on
+        // chromedriver's attach-mode behavior. Never throw out of
+        // patchedRemote — beforeAll would fail and Run is dead.
+        if (browser && typeof browser.deleteSession === 'function') {
+            try {
+                const origDelete = browser.deleteSession.bind(browser);
+                const patched = async function patchedDeleteSession() {
+                    try {
+                        return await origDelete({ shutdownDriver: false });
+                    } catch {
+                        return undefined;
+                    }
+                };
+                try {
+                    browser.deleteSession = patched;
+                } catch {
+                    Object.defineProperty(browser, 'deleteSession', {
+                        value: patched,
+                        configurable: true,
+                        writable: true,
+                    });
+                }
+            } catch {
+                /* Browser proxy refuses both paths; trust chromedriver's
+                   attach-mode deleteSession to leave Chrome alive. */
+            }
+        }
+        return browser;
+    };
+    wdio.__dguiPatched = true;
+}
+
 function parseArgv(args) {
     const out = {};
     for (let i = 0; i < args.length; i++) {
@@ -43,7 +124,16 @@ registerIpcHandlers(ctx);
 
 // Parent-death detection: the IPC channel closes when the parent exits, which
 // fires 'disconnect' here. Mirrors Playwright's processHost → process.ts:68.
+//
+// The hard force-exit cap is armed HERE (not at module load) because the
+// previous unconditional setTimeout would kill the worker mid-pause: a QA
+// debug session that takes >30s (agent investigating, picking elements,
+// awaiting ask_user) hit process.exit before resume — which then nulled
+// currentAgentSession in the GUI server, and every subsequent ask_user /
+// edit_file call rejected with "agent session torn down". The cap only
+// makes sense once the parent is actually gone.
 process.on('disconnect', () => {
+    setTimeout(() => process.exit(0), ctx.forceExitMs).unref();
     gracefulCloseAndExit(ctx);
 });
 
@@ -133,8 +223,17 @@ async function gracefulCloseAndExit(closeCtx) {
     } catch {
         /* resume handler already cleared */
     }
+    // Skip deleteSession when the server owns Chrome (DEBUG_GUI_ATTACH_CDP
+    // set). Worker is exiting because the parent died; the server will
+    // (or already did) tear Chrome down on its way out. Calling
+    // deleteSession here is wasted work and risks racing the server's kill.
     try {
-        if (typeof global !== 'undefined' && global.browser && typeof global.browser.deleteSession === 'function') {
+        if (
+            !process.env.DEBUG_GUI_ATTACH_CDP &&
+            typeof global !== 'undefined' &&
+            global.browser &&
+            typeof global.browser.deleteSession === 'function'
+        ) {
             await Promise.race([
                 Promise.resolve()
                     .then(() => global.browser.deleteSession())
@@ -148,6 +247,3 @@ async function gracefulCloseAndExit(closeCtx) {
     process.exit(0);
 }
 
-// Hard cap on total runtime so a wedged WDIO session can't hold the worker
-// alive after the GUI is gone. unref() so it doesn't block a clean exit.
-setTimeout(() => process.exit(0), ctx.forceExitMs).unref();

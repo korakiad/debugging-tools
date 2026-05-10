@@ -199,21 +199,20 @@ describe("store", () => {
 
     describe("notice lifecycle", () => {
         // The server emits `notice` after an approved edit during pause to
-        // tell QA that Continue won't pick up the fix (Mocha's per-process
-        // require cache holds the page-object instance from suite-load).
-        // The store needs to surface it, replace it on subsequent edits,
-        // let QA dismiss it, and drop it cleanly on a fresh run / spec
-        // switch — these tests pin those invariants.
+        // remind QA to click Continue (which re-forks the worker so the fix
+        // lands in a fresh require cache). The store surfaces it, replaces
+        // it on subsequent edits, lets QA dismiss it, and drops it cleanly
+        // on a fresh run / spec switch — these tests pin those invariants.
 
         it("apply 'notice' event surfaces the message", () => {
             useStore.getState().applyEvent({
                 type: "notice",
                 kind: "info",
-                message: "Click Run to re-execute the suite.",
+                message: "Click Continue to re-run the suite.",
             });
             const notice = useStore.getState().notice;
             expect(notice?.kind).toBe("info");
-            expect(notice?.message).toMatch(/click run/i);
+            expect(notice?.message).toMatch(/click continue/i);
         });
 
         it("'notice' event with unknown kind falls back to 'info'", () => {
@@ -244,27 +243,28 @@ describe("store", () => {
 
         it("status idle/done → running clears the notice (fresh run)", () => {
             // A fresh run with the fix on disk renders the notice irrelevant —
-            // the new process won't have the stale module cache. Drop it so
+            // the new fork won't have the stale module cache. Drop it so
             // it doesn't shout at QA after they've already done what it asked.
             useStore.setState({
                 state: { state: "done" },
-                notice: { kind: "info", message: "click run" },
+                notice: { kind: "info", message: "click continue" },
             });
             useStore.getState().applyEvent({ type: "status", state: "running" });
             expect(useStore.getState().notice).toBeNull();
         });
 
         it("status running ← paused (Continue resume) preserves the notice", () => {
-            // QA may approve the edit AND click Continue anyway — the
-            // notice is then proven right (test fails again with same
-            // error). Don't yank it; keep it visible until QA either
-            // dismisses or starts a fresh run.
+            // Continue triggers stop-old-worker → fork-new-worker. Between
+            // the two, status flips paused → running before the fresh fork
+            // sends its own `paused`. The notice should survive that brief
+            // intra-Continue window so QA isn't left wondering whether the
+            // edit was applied.
             useStore.setState({
                 state: { state: "paused", currentSpec: "a.spec.js" },
-                notice: { kind: "info", message: "click run" },
+                notice: { kind: "info", message: "click continue" },
             });
             useStore.getState().applyEvent({ type: "status", state: "running" });
-            expect(useStore.getState().notice?.message).toBe("click run");
+            expect(useStore.getState().notice?.message).toBe("click continue");
         });
 
         it("selectSuite to a different spec clears the notice", () => {

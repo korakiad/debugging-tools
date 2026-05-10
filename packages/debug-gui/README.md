@@ -8,8 +8,8 @@ Web GUI for walkthrough E2E debug sessions. Lets non-technical QA trigger a Moch
 - Click Run → the tool `fork()`'s a bundled Mocha launcher and talks to it over a Node IPC channel (no localhost HTTP, no PID polling)
 - Test fails → GUI pauses, shows failure details + stack
 - Agent inspects the live browser via CDP, proposes a file edit, you approve it
-- Click Continue → Mocha auto-retries the test from the top (up to 5 attempts)
-- Multiple broken selectors in one `it()`? Each pause → fix → continue cycle advances through them, no re-click-Run needed
+- Click Continue → tool tears down the current Mocha worker and forks a fresh one for the same spec so the agent's edit is picked up against a clean require cache
+- Multiple broken selectors in one suite? Each pause → fix → continue cycle re-runs the spec with the latest code; passing tests are fast on the second pass
 
 ## Prerequisites
 
@@ -77,17 +77,18 @@ Default is `5555`. Override:
 PORT=6000 debug-gui
 ```
 
-## How retry works
+## How Continue works
 
 When a test fails and you approve a fix:
 1. The injected `afterEach` hook sends a `paused` frame over the IPC channel and `await`s a resume promise
-2. You click **Continue** in the GUI → server writes `{type:'resume'}` over the IPC channel → the worker's resume promise resolves and `afterEach` returns
-3. Mocha's built-in retry (`this.retries(5)`) replays the test from the top
-4. `before` hooks do **not** re-run — your WDIO `browser` session survives across retries
-5. If the test still fails (maybe line#2 is also broken), it pauses again showing attempt 2/6
-6. After 5 exhausted retries, the test is marked failed and the suite continues
+2. You click **Continue** in the GUI → server tears down the current Mocha worker (graceful afterAll → wdio deleteSession, hard-kill fallback after 5 s) and forks a fresh one for the same spec
+3. The fresh fork loads modules from disk, picks up the agent's edit, and re-runs the spec from the start (full Mocha — reporters, root hooks, monkey patches all intact)
+4. Already-passing tests run again on the fresh fork; the failing test now sees the fixed code and passes (or pauses on a new failure)
+5. Each pause → fix → Continue cycle drives the suite forward until it completes
 
-Non-idempotent steps (cart additions, form submissions) may produce duplicate side effects on retry — this is the same limitation Playwright and Cypress have with their retry features. For debugging workflow it's acceptable; for long-term suite health, make steps idempotent where possible.
+In-process retry is opt-in via `DEBUG_GUI_AUTO_RETRY=N` for genuine runtime flake (timing, network). The default is 0 because a stale require cache makes in-process retry hit the same failure — re-fork on Continue is the universally correct path.
+
+Non-idempotent steps (cart additions, form submissions) may produce duplicate side effects when the spec re-runs — this is the same limitation Playwright and Cypress have with their re-execution model. For debugging workflow it's acceptable; for long-term suite health, make steps idempotent where possible.
 
 ## Gotchas
 

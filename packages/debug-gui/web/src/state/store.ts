@@ -48,10 +48,10 @@ export interface LspWarning {
 }
 
 // Side-band INFO/WARN message surfaced in LogPanel. Currently driven by the
-// server when an `edit_file` is approved during pause: Mocha's per-process
-// require cache means the just-written fix won't take effect on the in-flight
-// retry, so we tell QA to click Run again rather than Continue. Cleared on
-// new run start (status → running from idle/done) and on user dismiss.
+// server when an `edit_file` is approved during pause: a reminder to click
+// Continue, which re-forks the worker so the fix lands in a fresh require
+// cache. Cleared on new run start (status → running from idle/done) and on
+// user dismiss.
 export interface Notice {
     kind: "info" | "warning" | "error";
     message: string;
@@ -282,6 +282,14 @@ export const useStore = create<Store>((set) => ({
                         allowFreeText: e.allowFreeText,
                     },
                 };
+            }
+            // Symmetric to pick_done. Server emits this when the underlying
+            // ask_user resolver is rejected (Stop / Cancel / Continue) so
+            // the prompt panel doesn't stick after the agent's tool call
+            // is gone.
+            if (e.type === "prompt_done") {
+                if (s.pendingPrompt?.reqId === e.reqId) return { pendingPrompt: null };
+                return {};
             }
             if (e.type === "mocha_log") {
                 const lastSeq = s.mochaLog.length > 0 ? s.mochaLog[s.mochaLog.length - 1].seq : 0;
