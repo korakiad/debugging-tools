@@ -18,7 +18,7 @@ class LoginPage {
 
   // Fixed: password field selector
   get passwordField() {
-    return "inputXX#password";
+    return '[data-test="password"]';
   }
 
   // Fixed: login button selector
