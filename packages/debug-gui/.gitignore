@@ -7,3 +7,7 @@ coverage/
 web/vite.config.js
 web/vite.config.d.ts
 package-lock.json
+# ensureLspConfig writes <cwd>/.github/lsp.json on first server boot; the
+# file is environment-specific (paths to typescript-language-server) and
+# regenerated automatically, so it's not part of the package source.
+.github/
