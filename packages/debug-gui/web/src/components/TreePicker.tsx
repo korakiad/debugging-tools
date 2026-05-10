@@ -163,6 +163,18 @@ export function TreePicker({ open, extensions, fetchTree, onPick, onCancel }: Tr
 async function defaultFetchTree(filter: string | null): Promise<{ root: FsTreeNode }> {
     const url = filter ? `/api/fs/tree?filter=${encodeURIComponent(filter)}` : "/api/fs/tree";
     const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+        // Server's defensive catch returns {error: "..."} JSON. Surface it
+        // verbatim so the dialog shows the actual cause instead of
+        // "HTTP 500" with no context.
+        let detail = "";
+        try {
+            const body = await res.json();
+            if (body?.error) detail = `: ${body.error}`;
+        } catch {
+            /* non-JSON body — keep bare status */
+        }
+        throw new Error(`HTTP ${res.status}${detail}`);
+    }
     return res.json();
 }

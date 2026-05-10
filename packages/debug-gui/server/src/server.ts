@@ -57,8 +57,18 @@ export function createApp(deps: AppDeps): Express {
         } catch {
             return res.status(400).json({ error: "invalid filter regex" });
         }
-        const tree = listProjectTree(deps.cwd, { fileFilter });
-        res.json({ root: tree });
+        // Defensive wrap: listProjectTree should be robust (readdirSync is
+        // try/caught internally) but a throw here surfaces as a bare Express
+        // 500 with no body, which the TreePicker shows as "HTTP 500" with no
+        // diagnostic. Catching lets the dialog display the actual error.
+        try {
+            const tree = listProjectTree(deps.cwd, { fileFilter });
+            res.json({ root: tree });
+        } catch (e: unknown) {
+            const message = e instanceof Error ? e.message : String(e);
+            console.error("[/api/fs/tree] listProjectTree failed:", e);
+            res.status(500).json({ error: message });
+        }
     });
 
     return app;
