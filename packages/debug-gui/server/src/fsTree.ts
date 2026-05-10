@@ -33,13 +33,25 @@ export interface ListOptions {
     maxEntries?: number;
 }
 
-export function listProjectTree(root: string, opts: ListOptions = {}): FsTreeNode {
+export interface FsTreeResult {
+    root: FsTreeNode;
+    // True when the walk hit `maxEntries` and stopped early. The returned
+    // tree is partial; callers MUST surface this to the user (e.g. a banner
+    // in the TreePicker dialog) so they don't pick from a tree that silently
+    // missed files.
+    truncated: boolean;
+}
+
+export function listProjectTree(root: string, opts: ListOptions = {}): FsTreeResult {
     const ignore = new Set([...ALWAYS_IGNORE, ...(opts.ignoreDirs ?? [])]);
     const cap = opts.maxEntries ?? 5000;
-    const counter = { n: 0 };
+    const state = { n: 0, truncated: false };
 
     const walk = (absDir: string, relDir: string): FsTreeNode | null => {
-        if (counter.n >= cap) return null;
+        if (state.n >= cap) {
+            state.truncated = true;
+            return null;
+        }
         let entries;
         try {
             entries = readdirSync(absDir, { withFileTypes: true });
@@ -53,7 +65,10 @@ export function listProjectTree(root: string, opts: ListOptions = {}): FsTreeNod
         });
         const children: FsTreeNode[] = [];
         for (const ent of entries) {
-            if (counter.n >= cap) break;
+            if (state.n >= cap) {
+                state.truncated = true;
+                break;
+            }
             if (ent.name.startsWith(".") && ent.name !== ".") continue;
             const entRel = relDir ? `${relDir}/${ent.name}` : ent.name;
             if (ent.isDirectory()) {
@@ -64,7 +79,7 @@ export function listProjectTree(root: string, opts: ListOptions = {}): FsTreeNod
                 }
             } else if (ent.isFile()) {
                 if (opts.fileFilter && !opts.fileFilter.test(ent.name)) continue;
-                counter.n++;
+                state.n++;
                 children.push({
                     name: ent.name,
                     path: entRel,
@@ -80,5 +95,6 @@ export function listProjectTree(root: string, opts: ListOptions = {}): FsTreeNod
         };
     };
 
-    return walk(root, "") ?? { name: path.basename(root), path: "", isDir: true, children: [] };
+    const node = walk(root, "") ?? { name: path.basename(root), path: "", isDir: true, children: [] };
+    return { root: node, truncated: state.truncated };
 }
