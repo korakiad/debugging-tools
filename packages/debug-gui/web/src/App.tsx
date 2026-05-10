@@ -56,6 +56,13 @@ export default function App() {
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [pendingSelection, setPendingSelection] = useState<TestSelection | null>(null);
     const [switching, setSwitching] = useState(false);
+    // Optimistic flag for the Continue worker swap. Server-side the swap
+    // takes ~3–10s (agent teardown + runner.sendStopAndKill + chrome.launch
+    // + new fork) and emits no intermediate state event, so without this
+    // the FailureCard + Continue button stay visible the whole time and QA
+    // thinks the click was lost. Set on click, cleared when state.state
+    // transitions away from "paused" (server's markRunning landed).
+    const [continuing, setContinuing] = useState(false);
     // Captured at the moment the suite-switch dialog opens so we can restore
     // focus to whatever row QA clicked once the dialog closes (Keep running,
     // Switch+apply, or auto-dismiss). Without this, focus lands on
@@ -105,6 +112,21 @@ export default function App() {
             target.focus();
         }
     }, [pendingSelection]);
+
+    // Clear `continuing` once the server's worker swap completes (state
+    // leaves "paused" — typically to "running" via markRunning, occasionally
+    // to "idle"/"done" if the swap hit an error path). Safety timeout fires
+    // if state stays paused for >30s so a wedged swap doesn't leave the
+    // button locked forever.
+    useEffect(() => {
+        if (!continuing) return;
+        if (state.state !== "paused") {
+            setContinuing(false);
+            return;
+        }
+        const timer = setTimeout(() => setContinuing(false), 30_000);
+        return () => clearTimeout(timer);
+    }, [continuing, state.state]);
 
     useEffect(() => {
         if (!switching) return;
@@ -161,7 +183,11 @@ export default function App() {
     //
     // Pick what fits QA's workflow and edit the two booleans below.
     const canStart = !!selectedSpec && (state.state === "idle" || state.state === "done") && !preRunDirty && !switching;
-    const canStop = (state.state === "running" || state.state === "paused") && !switching;
+    // Stop is disabled while a Continue swap is in flight: the server is
+    // mid-teardown + restart, and a racing cancel would conflict with the
+    // in-progress fork. Becomes available again once state transitions to
+    // running and `continuing` clears.
+    const canStop = (state.state === "running" || state.state === "paused") && !switching && !continuing;
 
     return (
         <div className="flex h-screen">
@@ -198,15 +224,17 @@ export default function App() {
                     {state.state === "paused" && (
                         <EfButton
                             cta
-                            disabled={switching || undefined}
+                            disabled={switching || continuing || undefined}
                             onClick={() => {
-                                if (switching) return;
+                                if (switching || continuing) return;
+                                setContinuing(true);
                                 send({ type: "continue" });
                             }}
                         >
-                            Continue
+                            {continuing ? "Resuming…" : "Continue"}
                         </EfButton>
                     )}
+                    {state.state === "paused" && continuing && <Spinner />}
                     {showPreRun && (
                         <PreRunRow
                             saved={savedPreRun}

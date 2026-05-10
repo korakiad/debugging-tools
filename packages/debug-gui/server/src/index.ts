@@ -163,6 +163,12 @@ export async function main(
     // suppress the rejection that abort() causes in sendAndWait().
     let currentAgentSession: Awaited<ReturnType<typeof copilot.createSession>> | null = null;
     let aborting = false;
+    // Continue tears down the agent as a side-effect of the worker swap, not
+    // as a user-initiated abort, so the chat_final "[aborted by user]" line
+    // would mislead QA into thinking the resume failed. Set true only by the
+    // continue path; cleared by onChange's finally so the next real abort
+    // surfaces normally.
+    let suppressAbortChat = false;
     // Trips the local Promise.race that wraps sendAndWait. The Copilot SDK's
     // sendAndWait only resolves/rejects on session.idle / session.error from
     // the CLI; abort() RPCs the CLI but doesn't unblock the local await. If
@@ -227,8 +233,16 @@ export async function main(
     //
     // Run + Continue call this before creating a new session;
     // agent_abort + cancel call it as the terminal teardown.
-    async function tearDownCurrentAgent(reason: string): Promise<void> {
+    //
+    // `suppressAbortChat`: when true AND a sendAndWait reject is actually
+    // fired, skip the "[aborted by user]" chat line. Continue passes this
+    // because the teardown is a worker swap, not a user abort.
+    async function tearDownCurrentAgent(
+        reason: string,
+        opts: { suppressAbortChat?: boolean } = {},
+    ): Promise<void> {
         if (agentSendReject) {
+            if (opts.suppressAbortChat) suppressAbortChat = true;
             aborting = true;
             const reject = agentSendReject;
             agentSendReject = null;
@@ -484,7 +498,9 @@ export async function main(
                 )]);
             } catch (e: any) {
                 if (aborting) {
-                    hub.broadcast({ type: "chat_final", content: "[aborted by user]" });
+                    if (!suppressAbortChat) {
+                        hub.broadcast({ type: "chat_final", content: "[aborted by user]" });
+                    }
                 } else {
                     hub.broadcast({ type: "error", message: `Agent send: ${e?.message ?? e}` });
                     console.error("agent.send failed:", e);
@@ -492,6 +508,7 @@ export async function main(
             } finally {
                 agentSendReject = null;
                 aborting = false;
+                suppressAbortChat = false;
                 hub.broadcast({ type: "agent_thinking", active: false });
                 hub.broadcast({ type: "agent_activity", label: "" });
             }
@@ -630,7 +647,10 @@ export async function main(
                 // the aborted session leaves sendAndWait pending forever
                 // (no idle event fires post-abort), which manifests as a
                 // stuck "Agent thinking" spinner that Stop can't clear.
-                await tearDownCurrentAgent("superseded by continue");
+                // suppressAbortChat: this teardown is a worker swap, not a
+                // user-initiated abort — surfacing "[aborted by user]" in
+                // chat would falsely suggest the resume failed.
+                await tearDownCurrentAgent("superseded by continue", { suppressAbortChat: true });
                 await killAllPicks();
                 closeAllPrompts();
                 drainResolvers(editResolvers);

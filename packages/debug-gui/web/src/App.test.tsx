@@ -375,6 +375,52 @@ describe("App suite-switch confirmation", () => {
         expect(snap.pausedAt).toBeUndefined();
     });
 
+    it("paused → Continue: button shows Resuming…, Stop disabled, repeat clicks dropped until status flips", () => {
+        // QA-reported gap: Continue clicks took 3–10s of background work
+        // (agent teardown + runner stop + chrome relaunch + new fork) and
+        // emitted no intermediate event, so the Continue button + FailureCard
+        // stayed visible the whole time and looked unresponsive. Optimistic
+        // `continuing` flag fixes the visible feedback; this test pins it.
+        useStore.setState({
+            state: {
+                state: "paused",
+                currentSpec: "test/a.spec.js",
+                currentFailure: { test: "x", file: "y", error: "boom", stack: "" },
+            },
+        });
+        render(<App />);
+
+        // Sanity: button reads "Continue" and Stop is enabled.
+        const continueBtn = screen.getByRole("button", { name: /^continue$/i });
+        expect(continueBtn).toBeInTheDocument();
+
+        fireEvent.click(continueBtn);
+        expect(sendSpy).toHaveBeenCalledWith({ type: "continue" });
+        expect(sendSpy).toHaveBeenCalledTimes(1);
+
+        // After click: button label flips to "Resuming…" — the only visible
+        // signal that the click registered before the swap completes.
+        expect(screen.queryByRole("button", { name: /^continue$/i })).not.toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /resuming/i })).toBeInTheDocument();
+
+        // Repeat clicks dropped by the `continuing` guard so QA can't fire a
+        // duplicate continue mid-swap.
+        fireEvent.click(screen.getByRole("button", { name: /resuming/i }));
+        expect(sendSpy).toHaveBeenCalledTimes(1);
+
+        // Stop is also disabled during the swap (canStop guard) — server is
+        // mid-teardown + restart and a racing cancel would conflict.
+        fireEvent.click(screen.getByRole("button", { name: /^stop$/i }));
+        expect(sendSpy).toHaveBeenCalledTimes(1);
+
+        // Server's markRunning lands → continuing clears, Resuming label gone.
+        act(() => {
+            useStore.getState().applyEvent({ type: "status", state: "running" });
+        });
+        expect(screen.queryByRole("button", { name: /resuming/i })).not.toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: /^continue$/i })).not.toBeInTheDocument();
+    });
+
     it("during switching: clicking Stop is a no-op (canStop guarded)", () => {
         useStore.setState({ state: { state: "running" } });
         render(<App />);
