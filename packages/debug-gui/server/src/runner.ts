@@ -1,13 +1,13 @@
-import { spawn, ChildProcess } from "child_process";
+import { spawn, fork, ChildProcess } from "child_process";
 import { EventEmitter } from "events";
 import { fileURLToPath } from "node:url";
 import treeKill from "tree-kill";
 
-// Resolve the bundled walkthrough hook path. Works in both layouts:
-//   dev (tsx): src/runner.ts  → ../runtime/walkthrough-hooks.cjs
-//   prod:     dist/runner.js  → ../runtime/walkthrough-hooks.cjs
-export const BUNDLED_HOOK_PATH = fileURLToPath(
-    new URL("../runtime/walkthrough-hooks.cjs", import.meta.url)
+// Bundled mocha-ipc-launcher entry point. Resolves correctly under both
+// dev (tsx: src/runner.ts) and prod (dist/runner.js) layouts since both
+// sit one level under the package root with `runtime/` as a sibling.
+export const BUNDLED_LAUNCHER_PATH = fileURLToPath(
+    new URL("../runtime/mocha-ipc-launcher.cjs", import.meta.url)
 );
 
 export interface ShellSpawnOptions {
@@ -17,10 +17,10 @@ export interface ShellSpawnOptions {
     onSpawn?: (pid: number) => void;
 }
 
-// Runs an arbitrary shell command string (e.g. "npm run build"). Unlike
-// MochaRunner, this is single-shot — it resolves when the process exits.
-// shell:true so the command string is parsed by cmd.exe / sh, which is what
-// users mean when they type "npm run build && something".
+// Runs an arbitrary shell command string (e.g. "npm run build"). Single-shot
+// — resolves with the exit code. shell:true so the command string is parsed
+// by cmd.exe / sh, which is what users mean when they type
+// "npm run build && something".
 export function spawnShellCommand(cmd: string, opts: ShellSpawnOptions): Promise<number> {
     return new Promise((resolve) => {
         const proc = spawn(cmd, { env: opts.env, shell: true, stdio: ["ignore", "pipe", "pipe"] });
@@ -32,90 +32,45 @@ export function spawnShellCommand(cmd: string, opts: ShellSpawnOptions): Promise
     });
 }
 
-export interface CustomCommand {
-    cmd: string;
-    args: string[];
-}
-
 export interface BuildOptions {
     spec: string;
-    // Gui server port — hook POSTs state here via HTTP.
-    guiPort: number;
-    // Gui server pid — hook polls process.kill(pid, 0) for parent-death detection.
-    guiPid: number;
-    customCommand?: CustomCommand;
     // Mocha --grep value (regex source). When set, only tests whose full
     // title matches the regex run. Built from the user's tree selection;
     // see parseSuite.mochaGrepFor.
     grep?: string;
+    // When true the bundled launcher's hooks switch to step-style behaviour:
+    // retries off + bail subsequent it/describe siblings as soon as one
+    // test fails. Surfaced via DEBUG_GUI_BAIL_ON_FAILURE=1 in the worker env.
+    bailOnFailure?: boolean;
 }
 
-export interface MochaCommand {
-    command: string;
+export interface ForkSpec {
+    module: string;
     args: string[];
     env: NodeJS.ProcessEnv;
 }
 
-export function buildMochaCommand(opts: BuildOptions): MochaCommand {
-    const command = opts.customCommand?.cmd ?? "npx";
-    const args = opts.customCommand
-        ? [...opts.customCommand.args, opts.spec]
-        : ["mocha", opts.spec];
-
-    // Mocha auto-reads package.json.mocha (require, file, timeout, reporter,
-    // ...), so we do NOT forward those — doing so would load each --require
-    // twice. We only piggy-back the pause-on-failure hook.
-    args.push("--require", BUNDLED_HOOK_PATH);
-
+// Build the argv + env for fork()'ing mocha-ipc-launcher.cjs. The launcher
+// boots Mocha programmatically and pushes status/paused frames over the
+// Node IPC channel — there is no localhost HTTP and no PID watchdog, so
+// no port/pid plumbing is required.
+export function buildMochaFork(opts: BuildOptions): ForkSpec {
+    const args: string[] = ["--spec", opts.spec];
     if (opts.grep) args.push("--grep", opts.grep);
 
-    return {
-        command,
-        args,
-        env: {
-            ...process.env,
-            DEBUG_GUI_PORT: String(opts.guiPort),
-            DEBUG_GUI_PID: String(opts.guiPid),
-        },
-    };
-}
+    const env: NodeJS.ProcessEnv = { ...process.env };
+    if (opts.bailOnFailure) env.DEBUG_GUI_BAIL_ON_FAILURE = "1";
 
-// Quote a single argv entry for `spawn(..., { shell: true })`. Without this,
-// Node concatenates args with spaces and hands them to cmd.exe / sh, which
-// re-tokenises on whitespace and shell metacharacters — so a value like
-// `^Login Form ` gets split into `^Login`, `Form`, `` and Mocha treats
-// `Form` as a positional spec pattern (manifests as
-// "Cannot find any files matching pattern 'Form'").
-//
-// Strategy:
-//   * Already-safe args (alnum, `_./:=@\\-+`) pass through unchanged so
-//     existing tests on `buildMochaCommand` keep working.
-//   * Otherwise wrap in double quotes on Windows (cmd.exe treats most
-//     metacharacters literally inside `"..."`; internal `"` doubles to `""`).
-//   * On POSIX (linux/darwin), wrap in single quotes (sh treats every byte
-//     literally inside `'...'`; internal `'` becomes `'\''`, the standard
-//     POSIX escape recipe).
-//
-// `platform` is parameterised so tests can exercise both branches from any
-// host. Defaults to the current process's platform.
-export function shellQuote(arg: string, platform: NodeJS.Platform = process.platform): string {
-    if (/^[A-Za-z0-9_./:=@\\\-+]+$/.test(arg)) return arg;
-    if (platform === "win32") {
-        return `"${arg.replace(/"/g, '""')}"`;
-    }
-    return `'${arg.replace(/'/g, `'\\''`)}'`;
+    return { module: BUNDLED_LAUNCHER_PATH, args, env };
 }
 
 // Cross-platform "kill this process AND every descendant it spawned."
 //
-// We need a tree kill — not a plain proc.kill() — because:
-//   (1) spawn(..., { shell: true }) wraps the command in cmd.exe on Windows
-//       (or /bin/sh on POSIX); the default signal only reaches the shell,
-//       leaving node/chromedriver/chrome orphaned.
-//   (2) Mocha does NOT run afterAll() on abrupt exit, so WDIO's
-//       deleteSession() never fires. Chrome stays alive with a locked
-//       profile dir and the next `remote()` call hits
-//       "unexpected alert open" or "unable to connect to renderer".
+// Required for the hard-kill fallback in sendStopAndKill — Mocha does not
+// run afterAll() on abrupt exit, so WDIO's deleteSession() never fires
+// without the tree-walk. Chrome stays alive with a locked profile dir and
+// the next `remote()` call hits "unexpected alert open" or "unable to
+// connect to renderer".
 //
 // tree-kill uses `taskkill /T /F` on Windows and a `ps`-based descendant
 // walk on POSIX, so it handles the orphan problem on every OS our QA
@@ -133,22 +88,54 @@ export function killTree(pid: number | undefined): Promise<void> {
 export class MochaRunner extends EventEmitter {
     private proc?: ChildProcess;
 
-    async start(cmd: MochaCommand): Promise<ChildProcess> {
-        // Defense-in-depth: if a previous run's process is still alive
-        // (Stop wasn't clicked, or tab was closed, or previous kill missed
-        // something), reap its tree before spawning a new one. Otherwise
-        // the new ChromeDriver may adopt the orphaned Chrome's profile.
+    async start(spec: ForkSpec): Promise<ChildProcess> {
+        // Defense-in-depth: if a previous run's worker is still alive
+        // (Stop wasn't clicked, tab closed, previous kill missed something),
+        // reap before spawning so its ChromeDriver doesn't compete for the
+        // user-data-dir lock.
         await killTree(this.proc?.pid);
-        // shell:true joins args with spaces without quoting — see shellQuote
-        // for the failure mode this prevents (--grep value with spaces was
-        // re-tokenised into a Mocha "pattern" arg). Wrapped in an arrow so
-        // map's `index` argument doesn't clobber the platform parameter.
-        const quoted = cmd.args.map((a) => shellQuote(a));
-        this.proc = spawn(cmd.command, quoted, { env: cmd.env, shell: true });
-        this.proc.stdout?.on("data", (d) => this.emit("stdout", d.toString()));
-        this.proc.stderr?.on("data", (d) => this.emit("stderr", d.toString()));
+
+        // stdio: ['ignore','pipe','pipe','ipc'] preserves the LogPanel feed
+        // (proc.stdout?.on('data', …) → WS broadcast). Using 'inherit' would
+        // route mocha output to the GUI server's terminal instead.
+        this.proc = fork(spec.module, spec.args, {
+            env: spec.env,
+            stdio: ["ignore", "pipe", "pipe", "ipc"],
+        });
+        this.proc.stdout?.on("data", (d: Buffer) => this.emit("stdout", d.toString()));
+        this.proc.stderr?.on("data", (d: Buffer) => this.emit("stderr", d.toString()));
         this.proc.on("exit", (code) => this.emit("exit", code));
         return this.proc;
+    }
+
+    get child(): ChildProcess | undefined {
+        return this.proc;
+    }
+
+    // Graceful stop with hard-kill fallback. Sends {type:'stop'} so the
+    // launcher's afterEach throws and Mocha tears the suite down via
+    // afterAll (WDIO deleteSession). If the worker doesn't exit within
+    // timeoutMs (wedged WDIO session, etc.), fall back to killTree().
+    async sendStopAndKill(timeoutMs = 5000): Promise<void> {
+        const proc = this.proc;
+        if (!proc) return;
+        if (proc.connected) {
+            try {
+                proc.send({ type: "stop" });
+            } catch {
+                /* parent IPC pipe already gone */
+            }
+        }
+        await new Promise<void>((resolve) => {
+            const timer = setTimeout(async () => {
+                await killTree(proc.pid);
+                resolve();
+            }, timeoutMs);
+            proc.once("exit", () => {
+                clearTimeout(timer);
+                resolve();
+            });
+        });
     }
 
     async kill(): Promise<void> {

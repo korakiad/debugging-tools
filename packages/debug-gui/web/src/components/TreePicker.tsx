@@ -22,7 +22,7 @@ export interface TreePickerProps {
     // Empty / undefined → use server default filter.
     extensions?: string[];
     // Prefer fetch() wrapper so tests can stub it without MSW.
-    fetchTree?: (filter: string | null) => Promise<{ root: FsTreeNode }>;
+    fetchTree?: (filter: string | null) => Promise<{ root: FsTreeNode; truncated?: boolean }>;
     onPick: (selection: TreeSelection) => void;
     onCancel: () => void;
 }
@@ -64,6 +64,7 @@ export function TreePicker({ open, extensions, fetchTree, onPick, onCancel }: Tr
     const [data, setData] = useState<TreeDataItem[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
+    const [truncated, setTruncated] = useState(false);
     const treeRef = useRef<HTMLElement | null>(null);
 
     const filter = buildFilterFromExtensions(extensions ?? []);
@@ -72,8 +73,12 @@ export function TreePicker({ open, extensions, fetchTree, onPick, onCancel }: Tr
         const doFetch = fetchTree ?? defaultFetchTree;
         setLoading(true);
         setError(null);
+        setTruncated(false);
         doFetch(filter)
-            .then((res) => setData(toTreeData(res.root)))
+            .then((res) => {
+                setData(toTreeData(res.root));
+                setTruncated(!!res.truncated);
+            })
             .catch((e) => setError(e?.message ?? String(e)))
             .finally(() => setLoading(false));
         // filter derives from `extensions`; adding it covers reopen-with-new-filter.
@@ -127,9 +132,25 @@ export function TreePicker({ open, extensions, fetchTree, onPick, onCancel }: Tr
                     </div>
                 )}
 
+                {!loading && !error && truncated && (
+                    <div
+                        role="alert"
+                        className="text-xs px-3 py-2 rounded"
+                        style={{
+                            background: "var(--ef-color-warning-200, #4a3a14)",
+                            border: "1px solid var(--ef-color-warning-500, #c08a2c)",
+                            color: "var(--ef-color-warning-100, #f0d090)",
+                        }}
+                    >
+                        Project tree was truncated at the entry cap. Some files
+                        are not shown — narrow the extensions or pick a more
+                        specific folder to see the rest.
+                    </div>
+                )}
+
                 {!loading && !error && (
                     <div
-                        className="max-h-[50vh] overflow-auto rounded p-2"
+                        className="max-h-[50vh] overflow-auto p-2"
                         style={{ border: "1px solid var(--ef-border-color, #404040)" }}
                     >
                         {data.length === 0 ? (
@@ -160,9 +181,21 @@ export function TreePicker({ open, extensions, fetchTree, onPick, onCancel }: Tr
     );
 }
 
-async function defaultFetchTree(filter: string | null): Promise<{ root: FsTreeNode }> {
+async function defaultFetchTree(filter: string | null): Promise<{ root: FsTreeNode; truncated?: boolean }> {
     const url = filter ? `/api/fs/tree?filter=${encodeURIComponent(filter)}` : "/api/fs/tree";
     const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+        // Server's defensive catch returns {error: "..."} JSON. Surface it
+        // verbatim so the dialog shows the actual cause instead of
+        // "HTTP 500" with no context.
+        let detail = "";
+        try {
+            const body = await res.json();
+            if (body?.error) detail = `: ${body.error}`;
+        } catch {
+            /* non-JSON body — keep bare status */
+        }
+        throw new Error(`HTTP ${res.status}${detail}`);
+    }
     return res.json();
 }

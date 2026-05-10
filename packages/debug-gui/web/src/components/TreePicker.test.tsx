@@ -134,4 +134,60 @@ describe("TreePicker render", () => {
         expect(screen.getByText(/connection refused/i)).toBeInTheDocument();
         expect(screen.getByText(/add globs by hand/i)).toBeInTheDocument();
     });
+
+    it("shows a truncation banner when fetchTree returns truncated:true", async () => {
+        const fetchTree = async () => ({
+            root: {
+                name: "proj",
+                path: "",
+                isDir: true,
+                children: [
+                    { name: "test", path: "test", isDir: true, children: [
+                        { name: "a.spec.js", path: "test/a.spec.js", isDir: false },
+                    ]},
+                ],
+            } as FsTreeNode,
+            truncated: true,
+        });
+        render(
+            <TreePicker
+                open
+                fetchTree={fetchTree}
+                onPick={() => {}}
+                onCancel={() => {}}
+            />
+        );
+        await waitFor(() => {
+            expect(screen.getByRole("alert")).toBeInTheDocument();
+        });
+        expect(screen.getByText(/truncated/i)).toBeInTheDocument();
+    });
+
+    it("does not show the truncation banner when truncated is false or absent", async () => {
+        const fetchTree = async () => ({
+            root: {
+                name: "proj",
+                path: "",
+                isDir: true,
+                children: [
+                    { name: "test", path: "test", isDir: true, children: [
+                        { name: "a.spec.js", path: "test/a.spec.js", isDir: false },
+                    ]},
+                ],
+            } as FsTreeNode,
+            truncated: false,
+        });
+        render(
+            <TreePicker
+                open
+                fetchTree={fetchTree}
+                onPick={() => {}}
+                onCancel={() => {}}
+            />
+        );
+        await waitFor(() => {
+            // Tree rendered (the data load completed) — banner should not be present.
+            expect(screen.queryByRole("alert")).toBeNull();
+        });
+    });
 });

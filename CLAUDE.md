@@ -26,7 +26,7 @@ bash test/walkthrough-hook-test/verify-hook.sh
 npx mocha test/walkthrough-e2e-wdio/login.spec.js \
   --require test/walkthrough-e2e-wdio/wdio-setup.js --timeout 30000
 
-# Run WDIO tests WITH walkthrough (decorator + HTTP IPC, no --require needed)
+# Run WDIO tests WITH walkthrough (decorator + filesystem IPC, standalone skill)
 WALKTHROUGH_PORT=3456 npx mocha test/walkthrough-e2e-wdio/login.spec.js \
   --require test/walkthrough-e2e-wdio/wdio-setup.js --timeout 60000
 
@@ -53,28 +53,34 @@ node -c path/to/file.js
 
 ### Two distinct walkthrough contexts
 
-- **Standalone skill** (`.claude/skills/walkthrough/`) — used when a developer invokes walkthrough from Claude Code CLI without the GUI. Still uses the v1 filesystem protocol (`.walkthrough/status.json`, `.walkthrough/paused.json`, `.walkthrough/continue`). The hook is invoked via `--require` and activated by `WALKTHROUGH_PORT` env var (despite the name, current skill impl is filesystem-based).
-- **Bundled in debug-gui** (`packages/debug-gui/server/runtime/walkthrough-hooks.cjs`) — v2 HTTP IPC, hook-as-client design. The hook POSTs state to the debug-gui Express server and polls for continue. Parent-death detection via `process.kill(DEBUG_GUI_PID, 0)` polling (LSP-style). Exit code 187 on bail.
+- **Standalone skill** (`.claude/skills/walkthrough/`) — used when a developer invokes walkthrough from Claude Code CLI without the GUI. Uses the v1 filesystem protocol (`.walkthrough/status.json`, `.walkthrough/paused.json`, `.walkthrough/continue`). The hook is invoked via `--require` and activated by `WALKTHROUGH_PORT` env var (despite the name, the skill impl is filesystem-based).
+- **Bundled in debug-gui** (`packages/debug-gui/server/runtime/mocha-ipc-launcher.cjs` + `mocha-ipc-hooks.cjs`) — v3 Node IPC channel. The debug-gui server `child_process.fork()`'s the launcher, which boots Mocha programmatically and pushes status/paused frames over the IPC channel. Parent-death is detected by `process.on('disconnect')`. No HTTP, no PID polling, no heartbeat, no exit-187.
 
-### Walkthrough Session Flow (debug-gui v2 — HTTP IPC)
-1. QA clicks Run in the GUI; server spawns mocha with `DEBUG_GUI_PORT=<serverPort>` + `DEBUG_GUI_PID=<process.pid>` in env
-2. `--require runtime/walkthrough-hooks.cjs` attaches Mocha Root Hooks
-3. Hook `beforeAll` POSTs `/hook/status {state:"running"}` + starts 500ms watchdog
-4. On test failure: hook POSTs `/hook/paused` with failure info, then polls `GET /hook/should-continue`
-5. Server's Orchestrator polls `HookerClient.getStatus()` (in-process), emits session events → WS broadcast → UI pauses
-6. Copilot agent session gets the failure info inlined in its prompt (no longer reads `.walkthrough/paused.json`), inspects app via playwright-cli CDP, proposes edits
-7. QA clicks Continue → `hooker.postContinue()` flips flag → hook's next `GET /hook/should-continue` returns `{shouldContinue:true}` → hook resumes
-8. Throughout: hook's watchdog pings `/hook/heartbeat` every 500ms AND probes `process.kill(DEBUG_GUI_PID, 0)`. If 3 HTTP fails OR OS-confirmed dead pid → `shouldAbort()` returns `{code:187, message}` → `process.exit(187)`
+### Walkthrough Session Flow (debug-gui v3 — Node IPC)
+1. QA clicks Run in the GUI; server `fork()`'s `runtime/mocha-ipc-launcher.cjs` with `stdio: ['ignore','pipe','pipe','ipc']`. The pipes preserve the LogPanel feed; the IPC slot carries control frames.
+2. The launcher reads the consumer's `package.json` `mocha.require` (mirroring what Mocha CLI auto-loads — e.g. `wdio-setup.js`), then `mocha.rootHooks(installHooks(...))` registers the bundled `beforeAll` / `beforeEach` / `afterEach` / `afterAll`.
+3. `beforeAll` sends `{type:'status', state:'running', startedAt}` over IPC.
+4. On test failure: `afterEach` sends `{type:'paused', failure}` and `await`s a `ManualPromise` that the IPC `process.on('message')` handler resolves on `{type:'resume'}` or `{type:'stop'}`.
+5. Server-side `WorkerLink` translates inbound frames into `SessionManager` transitions → WS broadcast → UI pauses (no polling lag).
+6. Copilot agent session gets the failure info inlined in its prompt, inspects the live app via playwright-cli CDP, proposes edits.
+7. QA clicks Continue → `WorkerLink.sendResume()` writes `{type:'resume'}` → worker's resume promise resolves → afterEach returns → Mocha replays the test (built-in retries).
+8. Parent-death: when the GUI process exits, the IPC pipe closes, the worker's `process.on('disconnect')` fires `gracefulCloseAndExit` (5 s WDIO `deleteSession` cap, then `process.exit(0)`).
+9. Stop while paused: server calls `MochaRunner.sendStopAndKill()` → writes `{type:'stop'}` → afterEach throws → Mocha runs `afterAll` (WDIO `deleteSession`) → exits cleanly. If the worker hasn't exited within 5 s, falls back to `killTree()` (`taskkill /T /F` on Windows, `ps`-based descendant walk on POSIX).
 
-### HTTP IPC Endpoints (debug-gui server, `http://127.0.0.1:<DEBUG_GUI_PORT>`)
-- `POST /hook/status` — body: `{state, startedAt?, pausedAt?, resumedAt?, finishedAt?}`
-- `POST /hook/paused` — body: `{test, file, error, stack, suite?, duration?, pausedAt?}` (sets state to paused)
-- `POST /hook/heartbeat` — body: `{pid, at}` — updates `lastHeartbeatAt`
-- `GET /hook/should-continue` — returns `{shouldContinue: boolean}`, flag is consume-once
+### Worker IPC Protocol (`packages/debug-gui/server/src/workerProtocol.ts`)
+
+Worker → Server (`WorkerOutbound`):
+- `{type:'status', state:'running'|'done', startedAt?, resumedAt?, finishedAt?}`
+- `{type:'paused', failure: FailureInfo}` — `failure` carries `test`, `file`, `error`, `stack`, plus runtime extras `attempt`, `maxAttempts`, `duration`, `pausedAt`
+- `{type:'done', failures: number}` — emitted from the launcher's `mocha.run` callback before exit
+
+Server → Worker (`WorkerInbound`):
+- `{type:'resume'}` — resolves the afterEach pause promise with `action:'resume'`
+- `{type:'stop'}` — resolves with `action:'stop'`, which throws inside afterEach so Mocha runs afterAll on its way out
 
 ### Debug GUI (`packages/debug-gui/`)
 Two workspaces under a monorepo root:
-- `server/` — Node + Express + `ws`. Orchestrates mocha spawn, hooker polling, CopilotClient session, WS hub. `src/index.ts` is the entry (`main(cwd, port)`).
+- `server/` — Node + Express + `ws`. fork()s the IPC launcher, attaches a `WorkerLink` for state translation, runs the CopilotClient session, broadcasts via the WS hub. `src/index.ts` is the entry (`main(cwd, port)`).
 - `web/` — Vite + React + Tailwind. Zustand store reduces ServerEvents; components render TestTree / FailureCard / DiffView / ChatDrawer / PickerOverlay.
 
 Dev: `vite` on `:5555` proxies `/api` + `/ws` to backend on `:5556`. Prod: backend serves the built SPA at its port (default 5555, `PORT` env overrides).
@@ -85,12 +91,12 @@ Dev: `vite` on `:5555` proxies `/api` + `/ws` to backend on `:5556`. Prod: backe
 
 ## Conventions
 
-- **Walkthrough** — standalone skill's hook (`.claude/skills/walkthrough/walkthrough-hooks.js`) is v1 filesystem, Mocha Root Hook Plugin, activated via `WALKTHROUGH_PORT` env var (name preserved for docs compatibility). Debug-gui's bundled hook (`packages/debug-gui/server/runtime/walkthrough-hooks.cjs`) is v2 HTTP, activated via `DEBUG_GUI_PORT` + `DEBUG_GUI_PID` env vars.
+- **Walkthrough** — standalone skill's hook (`.claude/skills/walkthrough/walkthrough-hooks.js`) is v1 filesystem, Mocha Root Hook Plugin, activated via `WALKTHROUGH_PORT` env var (name preserved for docs compatibility). Debug-gui's bundled hook (`packages/debug-gui/server/runtime/mocha-ipc-launcher.cjs` + `mocha-ipc-hooks.cjs`) is v3 Node IPC, fork()'d by the GUI server and addressed via `process.send` / `process.on('message')` (no env vars needed). `DEBUG_GUI_BAIL_ON_FAILURE=1` toggles the step-style retries-off + bail-siblings mode; `DEBUG_GUI_FORCE_EXIT_TIMEOUT_MS` (default 30000) caps graceful close on parent-disconnect.
 - **WDIO as library** — `remote()` for standalone sessions, not the WDIO testrunner; user's real tests use `Ws.instance.client.$()` wrapper
 - **Page objects** — getter methods returning selector strings, stored in `pages/` subdirectories
 - **CDP port 9222** — Chrome launched with `--remote-debugging-port=9222` for playwright-cli attachment
 - **Test fixtures use intentionally wrong selectors** — the point is to exercise the walkthrough debug loop, not to pass
-- **Debug GUI agent config** — `buildSessionConfig` passes `skillDirectories: [".claude/skills"]` so the Copilot CLI agent inherits the existing walkthrough / playwright-cli / identify-element SKILL.md content. Do not re-author skill content in server code.
+- **Debug GUI agent config — bundled-only SKILL scope** — `buildSessionConfig` (`packages/debug-gui/server/src/agent.ts`) passes only `BUNDLED_SKILLS_PATH` (the `packages/debug-gui/.claude/skills` directory shipped with `@debug-tools/ui`). The consumer project's `<cwd>/.claude/skills` is **not** consulted, because debug-gui is distributed to QA teams whose repos may carry stale or incompatible local skill copies that would silently shadow the bundled contract. To change agent behaviour in the GUI, edit `packages/debug-gui/.claude/skills/...`, not the standalone `.claude/skills/...` at the repo root (which is for the CLI walkthrough skill only). Do not re-author skill content in server code.
 - **playwright-cli invocation** — always shell out as `npx playwright-cli ...` (not bare `playwright-cli`). The CLI is bundled with `packages/debug-gui/`, not installed globally on QA machines.
 - **Diff rendering** — agent edit-suggestions render through `@pierre/diffs` (`<FileDiff>` + `parseDiffFromFile`) inside `packages/debug-gui/web/src/components/DiffView.tsx`. The Shiki worker pool is provided once at `web/src/main.tsx`; do not wrap individual diffs in their own provider.
 - **LSP for type/symbol work** — the `debug-gui` workspaces are TypeScript-heavy and store/prop/message types are shared across `server/`, `web/`, and the runtime hook. Before changing a prop signature, removing an export, renaming a type, or verifying that a field exists on a store value, prefer the **LSP** tool (find references, hover types, goto definition) over Read + Grep. Falling back to `npm run build -w @debug-gui/web` only catches errors after the fact. Read/Grep are still right for prose, config, and unfamiliar files.

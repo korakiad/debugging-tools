@@ -65,6 +65,7 @@ export function DiffView({
             />
             <div
                 className="p-2 flex gap-2 justify-end"
+                data-anchor="diff-actions"
                 style={{ borderTop: "1px solid var(--ef-border-color)" }}
             >
                 <EfButton onClick={onReject} style={{ color: "var(--ef-error)" }}>

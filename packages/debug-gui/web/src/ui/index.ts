@@ -10,3 +10,5 @@ export { EfTree } from "./EfTree";
 export { EfCheckbox } from "./EfCheckbox";
 export { EfNumberField } from "./EfNumberField";
 export { EfIcon } from "./EfIcon";
+export { EfAppstateBar } from "./EfAppstateBar";
+export { EfNotification } from "./EfNotification";

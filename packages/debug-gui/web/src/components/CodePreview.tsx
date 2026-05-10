@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Highlight, themes } from "prism-react-renderer";
 
 export interface CodePreviewProps {
@@ -11,6 +12,9 @@ export interface CodePreviewProps {
     // Inferred from the spec extension when undefined; default falls back to
     // typescript which is a permissive superset for our purposes.
     title?: string;
+    // Initial collapsed state. Defaults to expanded. The component manages
+    // its own collapse state — caller doesn't need to thread it through.
+    defaultCollapsed?: boolean;
 }
 
 // Minimum-viable code viewer: read-only, no caret, no scrolling jank, no
@@ -18,42 +22,53 @@ export interface CodePreviewProps {
 // like VS Code". The selected node's file extension drives grammar choice;
 // users editing JS will see strings/keywords/comments coloured the same way
 // they would in any modern dark theme.
-export function CodePreview({ code, startLine, language = "tsx", title }: CodePreviewProps) {
+export function CodePreview({ code, startLine, language = "tsx", title, defaultCollapsed = false }: CodePreviewProps) {
+    const [collapsed, setCollapsed] = useState(defaultCollapsed);
     return (
-        <div className="border border-gray-700 rounded overflow-hidden bg-[#1e1e1e]">
-            {title && (
-                <div className="text-xs px-3 py-1.5 border-b border-gray-700 bg-neutral-900/60 opacity-80 font-mono">
-                    {title}
-                </div>
+        <div className="border border-gray-700 overflow-hidden bg-[#1e1e1e]">
+            <div className="flex items-center text-xs px-3 py-1.5 border-b border-gray-700 bg-neutral-900/60 font-mono">
+                <span className="opacity-80 truncate flex-1">{title ?? ""}</span>
+                <button
+                    type="button"
+                    aria-label={collapsed ? "Expand code" : "Collapse code"}
+                    aria-expanded={!collapsed}
+                    onClick={() => setCollapsed((v) => !v)}
+                    className="ml-2 shrink-0 opacity-70 hover:opacity-100 px-2 py-0.5 rounded hover:bg-white/5 transition-opacity"
+                    data-testid="code-preview-toggle"
+                >
+                    {collapsed ? "▸ Expand" : "▾ Collapse"}
+                </button>
+            </div>
+            {!collapsed && (
+                <Highlight code={code} language={language} theme={themes.vsDark}>
+                    {({ className, style, tokens, getLineProps, getTokenProps }) => (
+                        <pre
+                            className={`${className} text-xs leading-relaxed m-0 p-3 overflow-auto max-h-[420px]`}
+                            style={{ ...style, background: "transparent" }}
+                            data-testid="code-preview"
+                        >
+                            {tokens.map((line, i) => {
+                                const lineProps = getLineProps({ line });
+                                return (
+                                    <div {...lineProps} key={i} className="flex">
+                                        <span
+                                            aria-hidden="true"
+                                            className="select-none opacity-40 pr-3 text-right tabular-nums w-10 shrink-0"
+                                        >
+                                            {startLine + i}
+                                        </span>
+                                        <span className="flex-1 whitespace-pre">
+                                            {line.map((token, j) => (
+                                                <span key={j} {...getTokenProps({ token })} />
+                                            ))}
+                                        </span>
+                                    </div>
+                                );
+                            })}
+                        </pre>
+                    )}
+                </Highlight>
             )}
-            <Highlight code={code} language={language} theme={themes.vsDark}>
-                {({ className, style, tokens, getLineProps, getTokenProps }) => (
-                    <pre
-                        className={`${className} text-xs leading-relaxed m-0 p-3 overflow-auto`}
-                        style={{ ...style, background: "transparent" }}
-                        data-testid="code-preview"
-                    >
-                        {tokens.map((line, i) => {
-                            const lineProps = getLineProps({ line });
-                            return (
-                                <div {...lineProps} key={i} className="flex">
-                                    <span
-                                        aria-hidden="true"
-                                        className="select-none opacity-40 pr-3 text-right tabular-nums w-10 shrink-0"
-                                    >
-                                        {startLine + i}
-                                    </span>
-                                    <span className="flex-1 whitespace-pre">
-                                        {line.map((token, j) => (
-                                            <span key={j} {...getTokenProps({ token })} />
-                                        ))}
-                                    </span>
-                                </div>
-                            );
-                        })}
-                    </pre>
-                )}
-            </Highlight>
         </div>
     );
 }

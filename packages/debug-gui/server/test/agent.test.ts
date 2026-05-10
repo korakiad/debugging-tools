@@ -3,25 +3,30 @@ import { buildSessionConfig, BUNDLED_SKILLS_PATH } from "../src/agent.js";
 import { existsSync } from "fs";
 
 describe("buildSessionConfig", () => {
-    it("lists target cwd skills first, bundled fallback second", () => {
+    it("uses only the bundled skills directory — no consumer-cwd override", () => {
         const cfg = buildSessionConfig({
-            cwd: "/repo",
             tools: [],
             onPick: vi.fn(),
             onEdit: vi.fn(),
         });
-        expect(cfg.skillDirectories).toHaveLength(2);
-        expect(cfg.skillDirectories?.[0]).toMatch(/\.claude[\\/]skills$/);
-        expect(cfg.skillDirectories?.[1]).toBe(BUNDLED_SKILLS_PATH);
+        expect(cfg.skillDirectories).toEqual([BUNDLED_SKILLS_PATH]);
     });
 
     it("bundled skills path points to real dir shipped with the package", () => {
         expect(existsSync(BUNDLED_SKILLS_PATH)).toBe(true);
     });
 
+    it("pins the model to gpt-5.2", () => {
+        const cfg = buildSessionConfig({
+            tools: [],
+            onPick: vi.fn(),
+            onEdit: vi.fn(),
+        });
+        expect(cfg.model).toBe("gpt-5.2");
+    });
+
     it("attaches custom tools", () => {
         const cfg = buildSessionConfig({
-            cwd: "/repo",
             tools: [{ name: "pick_element" } as any],
             onPick: vi.fn(),
             onEdit: vi.fn(),

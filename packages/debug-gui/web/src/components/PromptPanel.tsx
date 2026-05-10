@@ -24,7 +24,9 @@ export function PromptPanel({
 
     return (
         <div className="text-sm space-y-2">
-            <div className="font-bold">assistant:</div>
+            <span className="chat-drawer-badge" aria-label="Self-healing agent">
+                SELF-HEAL AGENT
+            </span>
             <div className="prompt-summary">{summary}</div>
             {options.length > 0 && (
                 <div className="flex flex-col gap-2 pt-1">
@@ -54,7 +56,8 @@ export function PromptPanel({
                         value={text}
                         onChange={(e) => setText(e.target.value)}
                         rows={2}
-                        placeholder="Add notes (optional)…"
+                        aria-label="missing context"
+                        placeholder="Anything I might be missing? (optional)"
                         className="prompt-textarea"
                     />
                     <EfButton

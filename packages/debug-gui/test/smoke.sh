@@ -19,6 +19,10 @@ echo "$RESP" | grep -q '"mode":"auto"' \
     || { echo "FAIL: expected agent.mode=auto default in /api/init"; echo "$RESP"; exit 1; }
 echo "SMOKE OK: /api/init defaults agent.mode to auto"
 
+echo "$RESP" | grep -qE '"lsp":"(ok|missing|broken|config-invalid|fs-error)"' \
+    || { echo "FAIL: /api/init missing lsp field"; echo "$RESP"; exit 1; }
+echo "SMOKE OK: /api/init exposes lsp status"
+
 kill $PID 2>/dev/null || true
 wait $PID 2>/dev/null || true
 trap - EXIT

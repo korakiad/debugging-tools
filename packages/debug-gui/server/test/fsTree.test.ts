@@ -24,8 +24,8 @@ function scaffold() {
 describe("listProjectTree", () => {
     it("returns only files matching fileFilter", () => {
         const dir = scaffold();
-        const tree = listProjectTree(dir, { fileFilter: /\.spec\.(js|ts)$/ });
-        const paths = flatten(tree).filter((n) => !n.isDir).map((n) => n.path).sort();
+        const { root } = listProjectTree(dir, { fileFilter: /\.spec\.(js|ts)$/ });
+        const paths = flatten(root).filter((n) => !n.isDir).map((n) => n.path).sort();
         expect(paths).toEqual([
             "test/cart.spec.js",
             "test/login.spec.js",
@@ -35,18 +35,36 @@ describe("listProjectTree", () => {
 
     it("skips node_modules, .git, and dotfiles", () => {
         const dir = scaffold();
-        const tree = listProjectTree(dir, { fileFilter: /\.spec\.js$/ });
-        const all = flatten(tree).map((n) => n.path);
+        const { root } = listProjectTree(dir, { fileFilter: /\.spec\.js$/ });
+        const all = flatten(root).map((n) => n.path);
         expect(all.some((p) => p.startsWith("node_modules"))).toBe(false);
         expect(all.some((p) => p.startsWith(".git"))).toBe(false);
     });
 
     it("omits empty directories (those with no matching descendants)", () => {
         const dir = scaffold();
-        const tree = listProjectTree(dir, { fileFilter: /\.spec\.(js|ts)$/ });
+        const { root } = listProjectTree(dir, { fileFilter: /\.spec\.(js|ts)$/ });
         // src/ has no spec files → should not appear as a branch.
-        const topChildren = (tree.children ?? []).map((n) => n.name);
+        const topChildren = (root.children ?? []).map((n) => n.name);
         expect(topChildren).not.toContain("src");
+    });
+
+    it("reports truncated=false when the walk fits inside the cap", () => {
+        const dir = scaffold();
+        const result = listProjectTree(dir, { fileFilter: /\.spec\.(js|ts)$/ });
+        expect(result.truncated).toBe(false);
+    });
+
+    it("reports truncated=true when the file count exceeds maxEntries", () => {
+        const dir = mkdtempSync(join(tmpdir(), "dbg-fs-cap-"));
+        const flat = join(dir, "flat");
+        mkdirSync(flat);
+        // Cap=3 with 5 matching files → walk stops at 3, sets truncated=true.
+        for (let i = 0; i < 5; i++) writeFileSync(join(flat, `f${i}.spec.js`), "");
+        const result = listProjectTree(dir, { fileFilter: /\.spec\.js$/, maxEntries: 3 });
+        expect(result.truncated).toBe(true);
+        const fileCount = flatten(result.root).filter((n) => !n.isDir).length;
+        expect(fileCount).toBe(3);
     });
 });
 

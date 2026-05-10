@@ -96,50 +96,53 @@ When status is `"paused"` (test failed):
    plain-language question that presents likely causes. QA responds freely
    — they can type anything.
 
+   **Language:** speak whatever language QA writes in. The example phrasings
+   below are English for clarity; translate at runtime to match QA's language.
+
    | Error Pattern | Agent asks |
    |---|---|
-   | `element not found` / `no such element` | "Element หาไม่เจอ — อาจเป็นเพราะ wait ไม่ทัน หรือ selector ผิดจริงๆ คุณอยากให้ผมวิเคราะห์ selector หรือคุณ pick element เอง?" |
-   | `element not interactable` / `not clickable` | "Element กดไม่ได้ — อาจเป็นเพราะ disabled อยู่หรือถูกบัง คุณอยากให้ผมดูสถานะ element หรือมันเป็น element ผิดตัว?" |
-   | `timeout` / `waitUntil` / `waiting for` | "รอนานเกินไป — อาจเป็นเพราะหน้ายังโหลดไม่เสร็จ หรืออยู่ผิดหน้า คุณเห็นหน้าจอตอนนี้เป็นยังไง?" |
-   | `stale element reference` / `StaleElementReferenceError` | "Element หายไประหว่าง interact — หน้าอาจ reload หรือ DOM เปลี่ยน คุณเห็นหน้ากระพริบหรือโหลดใหม่ไหม?" |
-   | `AssertionError` / `expected` / `assert` | "ค่าที่ได้ไม่ตรงที่คาดไว้ — อาจเป็นเพราะข้อมูลผิดหรือดูผิด element คุณอยากให้ผมดูค่าจริง หรือ pick element ที่ถูกต้อง?" |
-   | `navigation` / `ERR_` / `net::` | "หน้าไม่ตรง — อาจ redirect ผิดหรือต้อง login ก่อน คุณเห็นหน้าอะไรอยู่ตอนนี้?" |
-   | `frame` / `iframe` / `switchToFrame` / `contentFrame` | "Element อาจอยู่ใน iframe — คุณเห็น element ที่ต้องการอยู่ในกรอบเล็กๆ บนหน้าจอไหม?" |
-   | `ECONNREFUSED` / `session not created` / `session deleted` | "Browser อาจปิดหรือ crash ไป — คุณยังเห็นหน้าต่าง browser อยู่ไหม?" |
-   | Unrecognized error | "เกิด error ที่ไม่คาดคิด — คุณเห็นอะไรบนหน้าจอตอนนี้? หรืออยากให้ผมวิเคราะห์เอง?" |
+   | `element not found` / `no such element` | "I can't find the element — could be a wait that's too short, or the selector is genuinely wrong. Want me to analyze the selector, or pick the element yourself?" |
+   | `element not interactable` / `not clickable` | "The element won't accept the click — it may be disabled or covered. Want me to check its state, or is it the wrong element?" |
+   | `timeout` / `waitUntil` / `waiting for` | "Took too long — page may still be loading, or we're on the wrong page. What does the screen look like right now?" |
+   | `stale element reference` / `StaleElementReferenceError` | "The element disappeared mid-interaction — the page may have reloaded or the DOM changed. Did you see the screen flicker or refresh?" |
+   | `AssertionError` / `expected` / `assert` | "The value we got doesn't match what was expected — could be wrong data or the wrong element. Want me to check the actual value, or pick the correct element?" |
+   | `navigation` / `ERR_` / `net::` | "We're on the wrong page — may have redirected wrong, or you need to log in first. What page do you see now?" |
+   | `frame` / `iframe` / `switchToFrame` / `contentFrame` | "The element might live in an iframe — do you see the target element inside a smaller frame on screen?" |
+   | `ECONNREFUSED` / `session not created` / `session deleted` | "The browser may have closed or crashed — do you still see the browser window?" |
+   | Unrecognized error | "Unexpected error — what do you see on screen right now? Or want me to investigate?" |
 
 4. **Interpret QA's response and act:**
 
    QA can type anything. Interpret their intent:
 
-   - **"วิเคราะห์ให้" / "ดูให้" / "เช็คให้" / asks agent to investigate:**
+   - **QA asks the agent to investigate** (e.g. "you check", "analyze it", "look into it"):
      Use playwright-cli to inspect the live app (see Investigation Toolkit below).
      Report findings in plain language. Then propose a fix — do NOT apply yet.
 
-   - **"pick เอง" / "pick element" / "ชี้เอง" / wants to pick an element:**
+   - **QA wants to pick an element** (e.g. "I'll pick", "let me show you", "ok" after you offered pick):
      Enter `/identify-element` flow. QA clicks the element. Agent builds selector
      from the returned attributes. Propose fix — do NOT apply yet.
 
-   - **"ข้าม" / "skip" / "ไม่ต้องแก้" / wants to skip:**
+   - **QA wants to skip** (e.g. "skip", "next", "don't fix"):
      Signal continue, move to next test.
 
-   - **"selector ผิด" / "ไม่ใช่ตัวนี้" / says the element is wrong:**
-     Suggest: "คุณอยาก pick element ที่ถูกต้องไหม?" If yes → `/identify-element`.
+   - **QA says the element is wrong** (e.g. "wrong selector", "that's not it"):
+     Suggest: "Want to pick the correct element?" If yes → `/identify-element`.
 
-   - **"wait ไม่ทัน" / "โหลดช้า" / says it's a timing issue:**
+   - **QA says it's a timing issue** (e.g. "loads too slow", "wait isn't long enough"):
      Agent investigates timing → proposes adding explicit wait in code.
 
    - **QA's response is unclear:**
      Rephrase the question simpler (see Rephrase Rules below).
 
    - **Agent investigated but cause is inconclusive:**
-     Tell QA what you checked and offer: "ผมดูแล้วยังไม่ชัดเจน — คุณอยาก pick element ที่ถูกต้อง, บอกข้อมูลเพิ่ม, หรือข้ามไปก่อน?"
+     Tell QA what you checked and offer: "I'm not sure yet — want to pick the correct element, give me more info, or skip for now?"
 
 5. **Fix-after-confirm:**
 
    Agent MUST NOT apply any fix until QA confirms:
-   1. Agent shows finding: "ผมเจอว่า [root cause]"
-   2. Agent proposes fix: "จะแก้ [what] เป็น [what] ได้ไหม?" (show old vs new)
+   1. Agent shows finding: "I found that [root cause]"
+   2. Agent proposes fix: "Can I change [what] to [what]?" (show old vs new)
    3. QA confirms → agent applies fix
    4. QA rejects → agent asks what's wrong, adjusts
 
@@ -167,13 +170,10 @@ No file cleanup needed — HTTP server closes automatically when tests finish.
 ## Fix strategies
 
 ### Selector fixes
-When inspecting an element, extract raw attributes and choose the best selector
-based on what the project already uses:
-
-```bash
-# Get all useful attributes at once
-playwright-cli --raw eval "el => JSON.stringify({tag: el.tagName, id: el.id, class: el.className, testid: el.getAttribute('data-testid'), ariaLabel: el.getAttribute('aria-label'), role: el.role, name: el.getAttribute('name')})" e5
-```
+Use `playwright-cli --raw eval` against the element ref to extract whichever
+attributes you need (tag, id, classes, data-*, aria-*, role, name). Compose
+the JSON.stringify expression for the situation; ask the CLI for syntax if
+you're unsure: `playwright-cli eval --help`.
 
 Match the project's existing selector strategy:
 - If POMs use `data-testid` → prefer `$('[data-testid="..."]')`
@@ -195,11 +195,38 @@ When QA asks you to investigate, use these playwright-cli commands behind the
 scenes. Report findings in **plain language** — QA should never see command
 names or raw output.
 
-### Element state
-Check if the failing element exists and what state it's in:
+**Discover the live CLI surface — don't trust commands from memory.** When you
+need a command or flag not shown below, run `playwright-cli --help` (top-level
+catalog) or `playwright-cli <command> --help` (flags for a specific command).
+The playwright-cli SKILL is the canonical reference; the live `--help` output
+is the source of truth for flag names and syntax that may have changed between
+releases. The examples below are starter shapes — adapt them and verify with
+`--help` if anything looks off.
+
+### Working with the test browser CDP
+
+playwright-cli is session-scoped: every command runs against an attached
+session. Attach once with a unique session name, run any commands you need,
+then detach. Concurrent investigations don't collide as long as session
+names differ.
+
 ```bash
-playwright-cli --raw eval "el => JSON.stringify({tag: el.tagName, visible: el.offsetWidth > 0 && el.offsetHeight > 0, disabled: el.disabled, readonly: el.readOnly, display: getComputedStyle(el).display, opacity: getComputedStyle(el).opacity, pointerEvents: getComputedStyle(el).pointerEvents})" "<failing-selector>"
+sess=dgui_$RANDOM
+playwright-cli attach --cdp=http://localhost:<cdp-port> --session=$sess
+playwright-cli -s=$sess <any-command>      # snapshot, eval, console, network, ...
+playwright-cli -s=$sess detach
 ```
+
+All examples below assume you're inside an attached session (`-s=$sess`).
+
+### Element state
+Check if the failing element exists and what state it's in. Use
+`playwright-cli --raw eval` with a selector arg and a JSON.stringify
+expression returning the attributes you care about — typical needs: tagName,
+offset dimensions (visibility), `disabled` / `readOnly`, computed
+`display` / `opacity` / `pointerEvents`. `playwright-cli eval --help` shows
+the selector-arg syntax.
+
 If the element is not found, this tells you the selector is wrong.
 If found but not visible/disabled → element state issue.
 
@@ -242,14 +269,14 @@ QA may not understand your question or respond with something unclear.
 Escalate through simpler language:
 
 **Attempt 1 — Rephrase shorter:**
-Instead of "อาจเป็นเพราะ wait ไม่ทัน หรือ selector ผิดจริงๆ"
-say "คุณเห็นปุ่มนี้บนหน้าจอไหม? ใช่ หรือ ไม่"
+Instead of "could be a wait that's too short, or the selector is genuinely wrong"
+say "Do you see this button on screen? Yes or no?"
 
 **Attempt 2 — Yes/no question:**
-"คุณเห็น [element description] อยู่บนหน้าจอตอนนี้ไหม?"
+"Do you see [element description] on screen right now?"
 
 **Attempt 3 — Default to investigation:**
-"ผมจะลองดูเองนะครับ" → investigate using the toolkit above, then report findings.
+"Let me check myself" → investigate using the toolkit above, then report findings.
 
 After investigating, always come back with a **concrete finding and proposed fix**.
 Never leave QA hanging with "I don't know."
@@ -264,8 +291,8 @@ Never leave QA hanging with "I don't know."
 - **Use --raw flag** on playwright-cli eval to get clean output
 - **Redirect mocha stdout to file** — read only relevant lines, don't dump entire output into context
 - **Use HTTP IPC** via `walkthrough-hooker.js` + `WALKTHROUGH_PORT` env var. Requires Mocha ^10.2.0.
-- **NEVER fix without QA confirmation** — investigate and propose, but always ask "ได้ไหม?" before applying changes
+- **NEVER fix without QA confirmation** — investigate and propose, but always ask "ok to apply?" before applying changes
 - **ALWAYS match error to pattern first** — read the error message and use the Error Pattern table to ask the right question
 - **ALWAYS report findings in plain language** — QA should never see playwright-cli commands, raw JSON, or technical jargon
-- **ALWAYS offer pick element** when the issue might be a wrong selector — say "คุณอยาก pick element ที่ถูกต้องไหม?"
+- **Prefer pick element by default** for selector failures when QA is at the keyboard — say "Want to pick the correct element?" Fall back to snapshot/eval when QA declines, the element can't be clicked through the picker, or you're running unattended.
 - **Use the rephrase escalation** when QA doesn't understand — simpler → yes/no → investigate yourself

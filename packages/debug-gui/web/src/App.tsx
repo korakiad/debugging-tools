@@ -3,7 +3,7 @@ import { useWebSocket } from "./hooks/useWebSocket";
 import { useStore } from "./state/store";
 import { TestTree, type TestSelection } from "./components/TestTree";
 import { EfDialog } from "./ui/EfDialog";
-import { SelectionPanel } from "./components/SelectionPanel";
+import { EmptyHero } from "./components/EmptyHero";
 import { CodePreview, languageFromPath, sliceSource } from "./components/CodePreview";
 import { mochaGrepFor } from "./lib/mochaGrep";
 import { findNode } from "./lib/findNode";
@@ -12,11 +12,13 @@ import { DiffView } from "./components/DiffView";
 import { PickerOverlay } from "./components/PickerOverlay";
 import { ModeToggle, type AgentMode } from "./components/ModeToggle";
 import { ChatDrawer } from "./components/ChatDrawer";
-import { MochaLogPanel } from "./components/MochaLogPanel";
+import { LspWarningModal } from "./components/LspWarningModal";
+import { RightPanel } from "./components/RightPanel";
+import { LogPanel } from "./components/LogPanel";
 import { Spinner } from "./components/Spinner";
 import { PreRunRow } from "./components/PreRunRow";
 import { SettingsDialog, type DebugGuiConfigShape } from "./components/SettingsDialog";
-import { EfButton } from "./ui";
+import { EfButton, EfCheckbox } from "./ui";
 
 export default function App() {
     const { send } = useWebSocket();
@@ -36,6 +38,8 @@ export default function App() {
     const diff = useStore((s) => s.pendingDiff);
     const pick = useStore((s) => s.pendingPick);
     const prompt = useStore((s) => s.pendingPrompt);
+    const lspWarning = useStore((s) => s.lspWarning);
+    const dismissLspWarning = useStore((s) => s.dismissLspWarning);
     const config = useStore((s) => s.config) as { preRun?: string; agent?: { mode?: AgentMode } } & DebugGuiConfigShape;
     const savedPreRun = config.preRun ?? "";
     const mode: AgentMode = config.agent?.mode === "manual" ? "manual" : "auto";
@@ -43,10 +47,22 @@ export default function App() {
     // user accidentally skip builds session after session; the design calls
     // out "always run build" as the safe default.
     const [skipPreRun, setSkipPreRun] = useState(false);
+    // Step-style suites: when checked, hook disables retries and bails the
+    // remaining describe/it siblings as soon as one test fails. Not
+    // persisted because it changes the whole-suite contract — QA opts in
+    // explicitly per session.
+    const [bailOnFailure, setBailOnFailure] = useState(false);
     const [preRunDirty, setPreRunDirty] = useState(false);
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [pendingSelection, setPendingSelection] = useState<TestSelection | null>(null);
     const [switching, setSwitching] = useState(false);
+    // Optimistic flag for the Continue worker swap. Server-side the swap
+    // takes ~3–10s (agent teardown + runner.sendStopAndKill + chrome.launch
+    // + new fork) and emits no intermediate state event, so without this
+    // the FailureCard + Continue button stay visible the whole time and QA
+    // thinks the click was lost. Set on click, cleared when state.state
+    // transitions away from "paused" (server's markRunning landed).
+    const [continuing, setContinuing] = useState(false);
     // Captured at the moment the suite-switch dialog opens so we can restore
     // focus to whatever row QA clicked once the dialog closes (Keep running,
     // Switch+apply, or auto-dismiss). Without this, focus lands on
@@ -96,6 +112,21 @@ export default function App() {
             target.focus();
         }
     }, [pendingSelection]);
+
+    // Clear `continuing` once the server's worker swap completes (state
+    // leaves "paused" — typically to "running" via markRunning, occasionally
+    // to "idle"/"done" if the swap hit an error path). Safety timeout fires
+    // if state stays paused for >30s so a wedged swap doesn't leave the
+    // button locked forever.
+    useEffect(() => {
+        if (!continuing) return;
+        if (state.state !== "paused") {
+            setContinuing(false);
+            return;
+        }
+        const timer = setTimeout(() => setContinuing(false), 30_000);
+        return () => clearTimeout(timer);
+    }, [continuing, state.state]);
 
     useEffect(() => {
         if (!switching) return;
@@ -152,7 +183,11 @@ export default function App() {
     //
     // Pick what fits QA's workflow and edit the two booleans below.
     const canStart = !!selectedSpec && (state.state === "idle" || state.state === "done") && !preRunDirty && !switching;
-    const canStop = (state.state === "running" || state.state === "paused") && !switching;
+    // Stop is disabled while a Continue swap is in flight: the server is
+    // mid-teardown + restart, and a racing cancel would conflict with the
+    // in-progress fork. Becomes available again once state transitions to
+    // running and `continuing` clears.
+    const canStop = (state.state === "running" || state.state === "paused") && !switching && !continuing;
 
     return (
         <div className="flex h-screen">
@@ -165,14 +200,14 @@ export default function App() {
                 disabled={switching}
             />
             <main className="flex-1 p-4 overflow-auto space-y-4">
-                <div className="flex items-center gap-3">
+                <div className="app-toolbar">
                     <EfButton
                         cta
                         disabled={!canStart || undefined}
                         onClick={() => {
                             if (!canStart) return;
                             const grep = mochaGrepFor(selectedNode) ?? undefined;
-                            send({ type: "run", spec: selectedSpec!, skipPreRun, grep });
+                            send({ type: "run", spec: selectedSpec!, skipPreRun, grep, bailOnFailure });
                         }}
                     >
                         Start
@@ -186,7 +221,20 @@ export default function App() {
                         Stop
                     </EfButton>
                     {(state.state === "running" || state.state === "pre-running") && <Spinner />}
-                    <span>Status: {state.state}</span>
+                    {state.state === "paused" && (
+                        <EfButton
+                            cta
+                            disabled={switching || continuing || undefined}
+                            onClick={() => {
+                                if (switching || continuing) return;
+                                setContinuing(true);
+                                send({ type: "continue" });
+                            }}
+                        >
+                            {continuing ? "Resuming…" : "Continue"}
+                        </EfButton>
+                    )}
+                    {state.state === "paused" && continuing && <Spinner />}
                     {showPreRun && (
                         <PreRunRow
                             saved={savedPreRun}
@@ -197,27 +245,31 @@ export default function App() {
                             onDirtyChange={setPreRunDirty}
                         />
                     )}
-                    {state.state === "paused" && (
-                        <EfButton
-                            cta
-                            disabled={switching || undefined}
-                            onClick={() => {
-                                if (switching) return;
-                                send({ type: "continue" });
-                            }}
-                        >
-                            Continue
-                        </EfButton>
-                    )}
+                    <label
+                        className="flex items-center gap-1 opacity-80 text-sm"
+                        title="When a test fails, skip the remaining tests in the suite and disable retries. Use for step-style describes where each it depends on the previous one."
+                    >
+                        <EfCheckbox
+                            aria-label="bail on failure"
+                            checked={bailOnFailure}
+                            onCheckedChanged={(e) =>
+                                setBailOnFailure((e as CustomEvent<{ value: boolean }>).detail.value)
+                            }
+                            disabled={isLive || switching || undefined}
+                        />
+                        Skip rest on failure
+                    </label>
+                    <div className="app-toolbar-spacer" aria-hidden />
                     <ModeToggle
                         mode={mode}
                         disabled={settingsDisabled}
                         onChange={(m) => send({ type: "settings_update", mode: m })}
                     />
+                    <span className="app-toolbar-divider" aria-hidden />
                     <EfButton
                         transparent
                         aria-label="settings"
-                        style={{ marginLeft: "auto" }}
+                        className="app-toolbar-settings"
                         disabled={settingsDisabled || undefined}
                         onClick={() => setSettingsOpen(true)}
                     >
@@ -233,35 +285,43 @@ export default function App() {
                     }}
                     onClose={() => setSettingsOpen(false)}
                 />
-                <SelectionPanel
-                    spec={selectedSpec}
-                    node={selectedNode}
-                    onClear={selectedSpec ? () => requestSelectionChange({ spec: selectedSpec, node: null }) : undefined}
-                />
-                {selectedSpec && selectedNode && previewCode && (
-                    <CodePreview
-                        code={previewCode}
-                        startLine={matchedNode!.line}
-                        language={languageFromPath(selectedSpec)}
-                        title={`${selectedSpec}:${matchedNode!.line}`}
+                {!selectedSpec ? (
+                    <EmptyHero
+                        title="Pick a test to begin"
+                        subtitle="Choose a spec, describe, or it from the tree on the left to load its details and start a run."
+                        icon={
+                            <svg width="56" height="56" viewBox="0 0 56 56" fill="none" aria-hidden>
+                                <path
+                                    d="M26 14 L14 28 L26 42"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                />
+                                <line
+                                    x1="14"
+                                    y1="28"
+                                    x2="44"
+                                    y2="28"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                />
+                            </svg>
+                        }
                     />
-                )}
-                {state.currentFailure && <FailureCard failure={state.currentFailure} />}
-                <MochaLogPanel />
-                {diff && (
-                    <DiffView
-                        file={diff.file}
-                        oldCode={diff.oldCode}
-                        newCode={diff.newCode}
-                        onApprove={() => {
-                            send({ type: "diff_decision", reqId: diff.reqId, action: "approved" });
-                            useStore.setState({ pendingDiff: null });
-                        }}
-                        onReject={() => {
-                            send({ type: "diff_decision", reqId: diff.reqId, action: "rejected", reason: "" });
-                            useStore.setState({ pendingDiff: null });
-                        }}
-                    />
+                ) : (
+                    <>
+                        {selectedNode && previewCode && (
+                            <CodePreview
+                                code={previewCode}
+                                startLine={matchedNode!.line}
+                                language={languageFromPath(selectedSpec)}
+                                title={`${selectedSpec}:${matchedNode!.line}`}
+                            />
+                        )}
+                        <LogPanel />
+                    </>
                 )}
                 {pendingSelection !== null && (
                     <EfDialog
@@ -316,30 +376,43 @@ export default function App() {
                     </EfDialog>
                 )}
             </main>
-            <ChatDrawer
-                onSend={(prompt) => send({ type: "chat_send", prompt })}
-                onAbort={() => send({ type: "agent_abort" })}
-                pendingPrompt={prompt}
-                onPromptRespond={({ choice, freeText }) => {
-                    if (!prompt) return;
-                    send({ type: "prompt_response", reqId: prompt.reqId, choice, freeText });
-                    useStore.setState({ pendingPrompt: null });
-                }}
-            />
+            <RightPanel>
+                {state.currentFailure && <FailureCard failure={state.currentFailure} />}
+                {diff && (
+                    <DiffView
+                        file={diff.file}
+                        oldCode={diff.oldCode}
+                        newCode={diff.newCode}
+                        onApprove={() => {
+                            send({ type: "diff_decision", reqId: diff.reqId, action: "approved" });
+                            useStore.setState({ pendingDiff: null });
+                        }}
+                        onReject={() => {
+                            send({ type: "diff_decision", reqId: diff.reqId, action: "rejected", reason: "" });
+                            useStore.setState({ pendingDiff: null });
+                        }}
+                    />
+                )}
+                <ChatDrawer
+                    onAbort={() => send({ type: "agent_abort" })}
+                    pendingPrompt={prompt}
+                    onPromptRespond={({ choice, freeText }) => {
+                        if (!prompt) return;
+                        send({ type: "prompt_response", reqId: prompt.reqId, choice, freeText });
+                        useStore.setState({ pendingPrompt: null });
+                    }}
+                />
+            </RightPanel>
             {pick && (
                 <PickerOverlay
-                    imageUrl={pick.imageUrl}
                     hint={pick.hint}
-                    onPick={(coords) => {
-                        send({ type: "pick_result", reqId: pick.reqId, selector: "", attrs: { coords } });
-                        useStore.setState({ pendingPick: null });
-                    }}
                     onCancel={() => {
-                        send({ type: "pick_result", reqId: pick.reqId, selector: "", attrs: { cancelled: true } });
+                        send({ type: "pick_cancel", reqId: pick.reqId });
                         useStore.setState({ pendingPick: null });
                     }}
                 />
             )}
+            <LspWarningModal warning={lspWarning} onDismiss={dismissLspWarning} />
         </div>
     );
 }

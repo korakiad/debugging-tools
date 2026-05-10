@@ -1,5 +1,4 @@
 import { approveAll, type Tool, type SessionConfig } from "@github/copilot-sdk";
-import { join } from "path";
 import { fileURLToPath } from "node:url";
 
 // Bundled skills shipped with @debug-tools/ui. Resolves to:
@@ -11,7 +10,6 @@ export const BUNDLED_SKILLS_PATH = fileURLToPath(
 );
 
 export interface AgentDeps {
-    cwd: string;
     tools: Tool<any>[];
     onPick: (hint: string) => Promise<Record<string, unknown>>;
     onEdit: (file: string, oldCode: string, newCode: string) => Promise<{ approved: boolean; reason?: string }>;
@@ -19,11 +17,11 @@ export interface AgentDeps {
 
 export function buildSessionConfig(deps: AgentDeps): SessionConfig {
     return {
-        // Target's own skills win over bundled (local override pattern).
-        skillDirectories: [
-            join(deps.cwd, ".claude/skills"),
-            BUNDLED_SKILLS_PATH,
-        ],
+        model: "gpt-5.2",
+        // Bundled-only: consumer projects' .claude/skills must NOT shadow the
+        // shipped SKILLs, otherwise stale or incompatible local copies would
+        // silently override the contract debug-gui ships against.
+        skillDirectories: [BUNDLED_SKILLS_PATH],
         tools: deps.tools,
         onPermissionRequest: approveAll,
     };
