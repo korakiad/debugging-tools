@@ -141,7 +141,7 @@ export default function App() {
         // `paused` state, currentFailure, and the Continue button can't
         // linger if selectSuite read s.state.state before the WS status
         // event was applied to the store.
-        useStore.setState({ state: { state: STATE.IDLE } });
+        useStore.getState().resetToIdle();
         setPendingSelection(null);
         setSwitching(false);
     }, [switching, state.state, pendingSelection]);
@@ -213,12 +213,7 @@ export default function App() {
                             // `status` events from the server carry no spec,
                             // and we don't want the first `paused` to have to
                             // fall back to failure.file for currentSpec.
-                            useStore.setState((s) => {
-                                if (s.state.state === STATE.IDLE || s.state.state === STATE.DONE) {
-                                    return { state: { state: s.state.state, currentSpec: selectedSpec! } };
-                                }
-                                return {};
-                            });
+                            useStore.getState().seedCurrentSpec(selectedSpec!);
                             send({ type: "run", spec: selectedSpec!, skipPreRun, grep, bailOnFailure });
                         }}
                     >
@@ -397,11 +392,11 @@ export default function App() {
                         newCode={diff.newCode}
                         onApprove={() => {
                             send({ type: "diff_decision", reqId: diff.reqId, action: "approved" });
-                            useStore.setState({ pendingDiff: null });
+                            useStore.getState().clearPendingDiff();
                         }}
                         onReject={() => {
                             send({ type: "diff_decision", reqId: diff.reqId, action: "rejected", reason: "" });
-                            useStore.setState({ pendingDiff: null });
+                            useStore.getState().clearPendingDiff();
                         }}
                     />
                 )}
@@ -411,7 +406,7 @@ export default function App() {
                     onPromptRespond={({ choice, freeText }) => {
                         if (!prompt) return;
                         send({ type: "prompt_response", reqId: prompt.reqId, choice, freeText });
-                        useStore.setState({ pendingPrompt: null });
+                        useStore.getState().clearPendingPrompt();
                     }}
                 />
             </RightPanel>
@@ -420,7 +415,7 @@ export default function App() {
                     hint={pick.hint}
                     onCancel={() => {
                         send({ type: "pick_cancel", reqId: pick.reqId });
-                        useStore.setState({ pendingPick: null });
+                        useStore.getState().clearPendingPick();
                     }}
                 />
             )}

@@ -135,6 +135,18 @@ interface Store {
     // mid-conversation — so the preservation only ever surfaced stale
     // chat after a paused run was switched away from.
     selectSuite: (spec: string | null, node: SelectedNode | null) => void;
+    /** Force a clean idle snapshot. Used after a cancel + suite-switch
+     *  combination, where the WS status event may not have landed before
+     *  selectSuite runs and the FailureCard / Continue button would
+     *  otherwise linger. */
+    resetToIdle: () => void;
+    clearPendingDiff: () => void;
+    clearPendingPick: () => void;
+    clearPendingPrompt: () => void;
+    /** Seed currentSpec at Start-click time so the first paused event can
+     *  build a PausedSnapshot without falling back to failure.file.
+     *  No-op when state is live — App.tsx only calls this from idle/done. */
+    seedCurrentSpec: (spec: string) => void;
 }
 
 export const useStore = create<Store>((set) => ({
@@ -339,6 +351,17 @@ export const useStore = create<Store>((set) => ({
                 default:
                     return assertNever(e, "useStore.applyEvent");
             }
+        }),
+    resetToIdle: () => set({ state: { state: STATE.IDLE } }),
+    clearPendingDiff: () => set({ pendingDiff: null }),
+    clearPendingPick: () => set({ pendingPick: null }),
+    clearPendingPrompt: () => set({ pendingPrompt: null }),
+    seedCurrentSpec: (spec) =>
+        set((s) => {
+            if (s.state.state === STATE.IDLE || s.state.state === STATE.DONE) {
+                return { state: { state: s.state.state, currentSpec: spec } };
+            }
+            return {};
         }),
     selectSuite: (spec, node) =>
         set((s) => {
