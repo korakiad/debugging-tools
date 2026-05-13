@@ -13,3 +13,4 @@ export type { ServerEvent, LspWarning } from "./events.js";
 export type { ClientCommand } from "./commands.js";
 export type { SuiteNode, SuiteTree } from "./suite.js";
 export { assertNever } from "./assertNever.js";
+export { parseServerEvent, parseClientCommand, parseWorkerFrame } from "./guards.js";

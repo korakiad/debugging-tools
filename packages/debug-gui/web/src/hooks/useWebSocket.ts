@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { ServerEvent } from "@debug-gui/protocol";
+import { parseServerEvent } from "@debug-gui/protocol";
 import { useStore } from "../state/store";
 
 export function useWebSocket(url: string = "/ws") {
@@ -15,9 +15,20 @@ export function useWebSocket(url: string = "/ws") {
         const absolute = url.startsWith("ws") ? url : `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}${url}`;
         const ws = new WebSocket(absolute);
         ref.current = ws;
-        // Cast: wire frames are validated at the boundary in Phase 6
-        // (parseServerEvent). For now, trust the JSON shape.
-        ws.onmessage = (ev) => apply(JSON.parse(ev.data) as ServerEvent);
+        ws.onmessage = (ev) => {
+            let parsed: unknown;
+            try {
+                parsed = JSON.parse(ev.data);
+            } catch {
+                return; // malformed JSON
+            }
+            const evt = parseServerEvent(parsed);
+            if (!evt) {
+                console.warn("[ws] dropped malformed server event:", parsed);
+                return;
+            }
+            apply(evt);
+        };
         return () => ws.close();
     }, [url, apply]);
 

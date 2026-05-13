@@ -1,5 +1,6 @@
 import express, { Express } from "express";
 import type { WebSocket } from "ws";
+import { parseClientCommand } from "@debug-gui/protocol";
 import { Suite } from "./discovery.js";
 import { DebugGuiConfig } from "./config.js";
 import { SessionSnapshot } from "./session.js";
@@ -130,11 +131,17 @@ export class WsHub {
     }
 
     handleIncoming(raw: string): void {
+        let parsed: unknown;
         try {
-            const cmd = JSON.parse(raw) as ClientCommand;
-            for (const fn of this.handlers) fn(cmd);
+            parsed = JSON.parse(raw);
         } catch {
-            // ignore malformed
+            return; // malformed JSON
         }
+        const cmd = parseClientCommand(parsed);
+        if (!cmd) {
+            console.warn("[ws] dropped malformed client command:", parsed);
+            return;
+        }
+        for (const fn of this.handlers) fn(cmd);
     }
 }

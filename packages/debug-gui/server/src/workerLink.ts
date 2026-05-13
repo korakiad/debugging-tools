@@ -1,5 +1,5 @@
 import { ChildProcess } from "child_process";
-import { STATE, assertNever, type WorkerOutbound, type WorkerInbound } from "@debug-gui/protocol";
+import { STATE, assertNever, parseWorkerFrame, type WorkerOutbound, type WorkerInbound } from "@debug-gui/protocol";
 import { SessionManager } from "./session.js";
 
 // Push-driven adapter for the worker IPC channel. The forked mocha worker
@@ -14,8 +14,16 @@ export class WorkerLink {
     attach(child: ChildProcess): void {
         this.child = child;
         child.on("message", (m: unknown) => {
-            if (!m || typeof m !== "object" || !("type" in m)) return;
-            this.handle(m as WorkerOutbound);
+            // Validate every frame against the protocol guard — the mocha-ipc
+            // hooks emit string literals + raw failure objects with no
+            // schema check; a worker version drift would otherwise corrupt
+            // the SessionManager snapshot.
+            const frame = parseWorkerFrame(m);
+            if (!frame) {
+                console.warn("[worker-link] dropped malformed frame:", m);
+                return;
+            }
+            this.handle(frame);
         });
         child.on("exit", () => {
             this.child = undefined;
