@@ -7,8 +7,7 @@ import { existsSync } from "fs";
 import { loadConfig, saveConfig } from "./config.js";
 import { discoverSuites } from "./discovery.js";
 import { SessionManager } from "./session.js";
-import { MochaRunner, buildMochaFork, spawnShellCommand, killTree } from "./runner.js";
-import { WorkerLink } from "./workerLink.js";
+import { MochaRunner, spawnShellCommand, killTree } from "./runner.js";
 import { ChromeManager } from "./chromeManager.js";
 import { createApp, WsHub } from "./server.js";
 import { SCREENSHOT_DIR } from "./screenshot.js";
@@ -18,6 +17,7 @@ import type { LspWarning } from "./messages.js";
 import { isPaused } from "@debug-gui/protocol";
 import { CopilotClient } from "@github/copilot-sdk";
 import { AgentSession } from "./domain/AgentSession.js";
+import { WorkerRun, type WorkerRunOpts } from "./domain/WorkerRun.js";
 
 export const VERSION = "0.0.1";
 
@@ -32,7 +32,6 @@ export async function main(
     });
 
     const session = new SessionManager();
-    const link = new WorkerLink(session);
     const runner = new MochaRunner();
     const chrome = new ChromeManager();
     const hub = new WsHub();
@@ -41,11 +40,11 @@ export async function main(
     // (fresh require cache → agent's edit takes effect). `switchingWorkers`
     // suppresses the exit/cleanup handlers below during that swap so the GUI
     // doesn't flash mocha_exit / done between forks. Last-run options drive
-    // the re-fork.
+    // the re-fork. `currentRun` holds the live WorkerRun instance — each
+    // Run / Continue creates a fresh one.
     let switchingWorkers = false;
-    let lastRunOpts:
-        | { spec: string; specRel: string; grep?: string; bailOnFailure?: boolean }
-        | null = null;
+    let currentRun: WorkerRun | null = null;
+    let lastRunOpts: WorkerRunOpts | null = null;
 
     runner.on("stdout", (text: string) => hub.broadcast({ type: "mocha_log", stream: "stdout", text }));
     runner.on("stderr", (text: string) => hub.broadcast({ type: "mocha_log", stream: "stderr", text }));
@@ -134,36 +133,26 @@ export async function main(
         }
     });
 
-    // Forks the Mocha worker, attaches the IPC link, and records the options
-    // so a later Continue can re-fork the same spec. markRunning happens
-    // before attach so any IPC frame arriving during boot finds currentSpec
-    // already set — WorkerLink uses currentSpec when reflecting status:running.
-    //
-    // Idempotently ensures a server-managed Chrome is running and threads
-    // its CDP debuggerAddress into the worker via DEBUG_GUI_ATTACH_CDP.
-    // The worker's launcher monkey-patches webdriverio.remote() to inject
-    // `goog:chromeOptions.debuggerAddress`, so consumer wdio-setup attaches
-    // instead of launching — Chrome survives the worker swap on Continue.
+    // Spin up a fresh WorkerRun. Idempotently ensures Chrome is running
+    // and threads its CDP debuggerAddress into the worker fork via
+    // DEBUG_GUI_ATTACH_CDP. The launcher monkey-patches webdriverio.remote()
+    // to inject `goog:chromeOptions.debuggerAddress`, so consumer
+    // wdio-setup attaches instead of launching — Chrome survives the
+    // worker swap on Continue.
     //
     // Run is responsible for calling `chrome.kill()` BEFORE this when the
     // user wants a fresh browser; Continue must NOT kill so the running
     // page state (login, navigation) is preserved across the re-fork.
-    async function startMochaWorker(opts: {
-        spec: string;
-        specRel: string;
-        grep?: string;
-        bailOnFailure?: boolean;
-    }): Promise<void> {
+    async function startMochaWorker(opts: WorkerRunOpts): Promise<void> {
         const handle = await chrome.launch();
-        const forkSpec = buildMochaFork({
-            spec: opts.spec,
-            grep: opts.grep,
-            bailOnFailure: opts.bailOnFailure,
+        const run = new WorkerRun({
+            opts,
+            runner,
+            session,
+            cdpAddress: handle.debuggerAddress,
         });
-        forkSpec.env.DEBUG_GUI_ATTACH_CDP = handle.debuggerAddress;
-        session.markRunning(opts.specRel);
-        const child = await runner.start(forkSpec);
-        link.attach(child);
+        currentRun = run;
+        await run.start();
         lastRunOpts = opts;
     }
 
@@ -297,11 +286,11 @@ export async function main(
                 currentAgent = null;
 
                 // Graceful stop with hard-kill fallback (5 s cap inside
-                // sendStopAndKill). Browser stays alive — server-managed
-                // Chrome (chromeManager) preserves login/navigation state
-                // across the swap.
-                await runner.sendStopAndKill();
-                link.detach();
+                // WorkerRun.stopGracefully → MochaRunner.sendStopAndKill).
+                // Browser stays alive — server-managed Chrome (chromeManager)
+                // preserves login/navigation state across the swap.
+                await currentRun?.stopGracefully();
+                currentRun = null;
                 await startMochaWorker(lastRunOpts);
                 await setupAgentForRun();
             } finally {
@@ -323,11 +312,12 @@ export async function main(
             }
             await currentAgent?.tearDown({ reason: "cancelled by user" });
             currentAgent = null;
-            // Graceful stop with hard-kill fallback. Sends {type:'stop'} so
-            // afterEach throws → Mocha runs afterAll (WDIO deleteSession)
-            // → worker exits cleanly. Falls back to killTree() after 5 s
-            // if the worker is wedged (WDIO session hung, etc.).
-            await runner.sendStopAndKill();
+            // Graceful stop with hard-kill fallback. WorkerRun forwards a
+            // {type:'stop'} frame so afterEach throws → Mocha runs afterAll
+            // (WDIO deleteSession) → worker exits cleanly. Falls back to
+            // killTree after the runner's 5 s grace.
+            await currentRun?.stopGracefully();
+            currentRun = null;
             // Stop ends the run AND the browser session; tear down Chrome
             // so the next Run gets a clean profile. Continue takes the
             // opposite path (no kill).
