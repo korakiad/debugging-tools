@@ -1,57 +1,43 @@
 import { EventEmitter } from "events";
+import { STATE, type FailureInfo, type SessionSnapshot, type SessionState } from "@debug-gui/protocol";
 
-export type SessionState = "idle" | "pre-running" | "running" | "paused" | "done";
-
-export interface FailureInfo {
-    test: string;
-    file: string;
-    error: string;
-    stack: string;
-    suite?: string;
-    pausedAt?: number;
-}
-
-export interface SessionSnapshot {
-    state: SessionState;
-    currentSpec?: string;
-    currentFailure?: FailureInfo;
-}
+export type { FailureInfo, SessionSnapshot, SessionState };
 
 export class SessionManager {
     readonly events = new EventEmitter();
-    private snapshot: SessionSnapshot = { state: "idle" };
+    private snapshot: SessionSnapshot = { state: STATE.IDLE };
 
     getState(): SessionSnapshot {
         return { ...this.snapshot };
     }
 
     markPreRunning(spec: string): void {
-        this.snapshot = { state: "pre-running", currentSpec: spec };
+        this.snapshot = { state: STATE.PRE_RUNNING, currentSpec: spec };
         this.events.emit("change", this.getState());
     }
 
     markRunning(spec: string): void {
-        this.snapshot = { state: "running", currentSpec: spec };
+        this.snapshot = { state: STATE.RUNNING, currentSpec: spec };
         this.events.emit("change", this.getState());
     }
 
     markPaused(failure: FailureInfo): void {
-        this.snapshot = { ...this.snapshot, state: "paused", currentFailure: failure };
+        this.snapshot = { ...this.snapshot, state: STATE.PAUSED, currentFailure: failure };
         this.events.emit("change", this.getState());
     }
 
     markResumed(): void {
-        this.snapshot = { ...this.snapshot, state: "running", currentFailure: undefined };
+        this.snapshot = { ...this.snapshot, state: STATE.RUNNING, currentFailure: undefined };
         this.events.emit("change", this.getState());
     }
 
     markDone(): void {
-        this.snapshot = { state: "done", currentSpec: this.snapshot.currentSpec };
+        this.snapshot = { state: STATE.DONE, currentSpec: this.snapshot.currentSpec };
         this.events.emit("change", this.getState());
     }
 
     reset(): void {
-        this.snapshot = { state: "idle" };
+        this.snapshot = { state: STATE.IDLE };
         this.events.emit("change", this.getState());
     }
 }

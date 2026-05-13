@@ -21,6 +21,7 @@ import { SCREENSHOT_DIR } from "./screenshot.js";
 import { launchAppMode } from "./launcher.js";
 import { ensureLspConfig } from "./lspInit.js";
 import type { LspWarning } from "./messages.js";
+import { isPaused } from "@debug-gui/protocol";
 import { CopilotClient } from "@github/copilot-sdk";
 
 export const VERSION = "0.0.1";
@@ -56,7 +57,7 @@ export async function main(
     runner.on("exit", (code: number | null) => {
         if (switchingWorkers) return; // worker swap, not a session-end
         hub.broadcast({ type: "mocha_exit", code });
-        if (session.getState().state !== "paused") session.markDone();
+        if (!isPaused(session.getState().state)) session.markDone();
     });
 
     const editResolvers = new Map<string, PendingResolver<{ approved: boolean; reason?: string }>>();
@@ -148,7 +149,7 @@ export async function main(
 
     session.events.on("change", (snap) => {
         hub.broadcast({ type: "status", state: snap.state });
-        if (snap.state === "paused" && snap.currentFailure) {
+        if (isPaused(snap.state) && snap.currentFailure) {
             hub.broadcast({ type: "paused", failure: snap.currentFailure });
         }
     });
@@ -447,7 +448,7 @@ export async function main(
 
         let lastPausedAt = 0;
         const onChange = async (snap: ReturnType<typeof session.getState>) => {
-            if (snap.state !== "paused" || !snap.currentFailure) return;
+            if (!isPaused(snap.state) || !snap.currentFailure) return;
             const at = snap.currentFailure.pausedAt ?? 0;
             if (at === lastPausedAt) return;
             lastPausedAt = at;

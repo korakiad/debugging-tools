@@ -1,6 +1,6 @@
 import { ChildProcess } from "child_process";
+import { STATE, type WorkerOutbound, type WorkerInbound } from "@debug-gui/protocol";
 import { SessionManager } from "./session.js";
-import type { WorkerOutbound, WorkerInbound } from "./workerProtocol.js";
 
 // Push-driven adapter for the worker IPC channel. The forked mocha worker
 // pushes status/paused/done frames over the Node IPC channel; WorkerLink
@@ -19,7 +19,7 @@ export class WorkerLink {
             // Mirror the pre-IPC runner.exit handler: only flip to "done" if
             // we weren't already paused — leaving the paused snapshot in
             // place lets the cancel/stop handler own the transition.
-            if (this.session.getState().state !== "paused") {
+            if (this.session.getState().state !== STATE.PAUSED) {
                 this.session.markDone();
             }
         });
@@ -31,11 +31,11 @@ export class WorkerLink {
             this.session.markPaused(m.failure);
             return;
         }
-        if (m.type === "status" && m.state === "running") {
+        if (m.type === "status" && m.state === STATE.RUNNING) {
             this.session.markRunning(this.session.getState().currentSpec ?? "");
             return;
         }
-        if (m.type === "status" && m.state === "done") {
+        if (m.type === "status" && m.state === STATE.DONE) {
             this.session.markDone();
         }
     }
