@@ -2,6 +2,7 @@ import type { ClientCommand } from "@debug-gui/protocol";
 import { saveConfig, type DebugGuiConfig } from "../config.js";
 import { discoverSuites, type Suite } from "../discovery.js";
 import type { WsHub } from "../server.js";
+import type { GuiSession } from "../domain/GuiSession.js";
 
 export interface SettingsUpdateDeps {
     readonly cwd: string;
@@ -10,6 +11,7 @@ export interface SettingsUpdateDeps {
      *  config thunk) read fresh values. */
     readonly config: DebugGuiConfig;
     readonly hub: WsHub;
+    readonly gui: GuiSession;
     /** Called when discovery globs/excludes changed — handed the
      *  freshly re-scanned suites so index.ts can update its closure. */
     readonly onSuitesRefreshed: (suites: Suite[]) => void;
@@ -81,6 +83,10 @@ export async function handleSettingsUpdate(
                 exclude: nextCfg.discovery.exclude,
             });
             deps.onSuitesRefreshed(suites);
+            // If the prior Run's spec is no longer discoverable (excluded
+            // by the new globs), drop the snapshot so a stray Continue
+            // can't try to re-fork a now-missing spec.
+            deps.gui.invalidateLastOptsIfMissing(suites.map((s) => s.relPath));
             deps.hub.broadcast({ type: "suites_updated", suites });
         }
     } catch (e: any) {

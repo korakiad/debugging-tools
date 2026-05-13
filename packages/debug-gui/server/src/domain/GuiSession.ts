@@ -171,6 +171,21 @@ export class GuiSession {
         this.agent = null;
     }
 
+    /**
+     * Drop the last-run snapshot if its spec is no longer in the
+     * provided list. Caller (settings_update after re-discovery)
+     * should pass the freshly-discovered relPaths so a stray Continue
+     * doesn't try to re-fork a spec that's been excluded.
+     */
+    invalidateLastOptsIfMissing(discoveredRelPaths: Iterable<string>): void {
+        if (!this.lastOpts) return;
+        const wanted = this.lastOpts.specRel;
+        for (const rp of discoveredRelPaths) {
+            if (rp === wanted) return; // still discoverable, keep
+        }
+        this.lastOpts = null;
+    }
+
     // ── WS command surface: delegate to the live agent ───────────────
 
     resolveDiff(reqId: string, approved: boolean, reason?: string): void {

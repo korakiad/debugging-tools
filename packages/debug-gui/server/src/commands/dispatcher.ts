@@ -59,6 +59,7 @@ function buildHandlers(deps: DispatcherDeps): HandlerMap {
                 cwd: deps.cwd,
                 config: deps.config,
                 hub: deps.hub,
+                gui: deps.gui,
                 onSuitesRefreshed: deps.onSuitesRefreshed,
             }),
     };
