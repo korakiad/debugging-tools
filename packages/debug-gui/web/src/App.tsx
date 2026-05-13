@@ -208,6 +208,17 @@ export default function App() {
                         onClick={() => {
                             if (!canStart) return;
                             const grep = mochaGrepFor(selectedNode) ?? undefined;
+                            // Seed currentSpec on the snapshot so subsequent
+                            // status/paused events can mirror it. Wire
+                            // `status` events from the server carry no spec,
+                            // and we don't want the first `paused` to have to
+                            // fall back to failure.file for currentSpec.
+                            useStore.setState((s) => {
+                                if (s.state.state === STATE.IDLE || s.state.state === STATE.DONE) {
+                                    return { state: { state: s.state.state, currentSpec: selectedSpec! } };
+                                }
+                                return {};
+                            });
                             send({ type: "run", spec: selectedSpec!, skipPreRun, grep, bailOnFailure });
                         }}
                     >

@@ -247,12 +247,15 @@ export const useStore = create<Store>((set) => ({
                     return { state: nextSnap };
                 }
                 case "paused": {
-                    // Paused requires currentSpec — if we somehow got here
-                    // without one (worker bug), bail rather than corrupt
-                    // the snapshot.
-                    const currentSpec = s.state.currentSpec;
-                    if (!currentSpec) return {};
+                    // PausedSnapshot requires currentSpec. Real flow: server's
+                    // markRunning(spec) sets it before any markPaused can fire,
+                    // so the prior snapshot usually has it. Fallback to
+                    // failure.file (the spec path the worker just paused in)
+                    // when the wire `status` events haven't seeded currentSpec
+                    // — those events carry no spec, so a cold start from
+                    // idle would otherwise drop the paused event.
                     const failure = e.failure;
+                    const currentSpec = s.state.currentSpec ?? failure.file;
                     return {
                         state: {
                             state: STATE.PAUSED,
