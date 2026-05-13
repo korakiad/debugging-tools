@@ -47,6 +47,11 @@ export class AgentSession {
     // True when the next sendOnPause rejection should be silent (Continue
     // swap teardown surfaces "[aborted by user]" otherwise — misleading).
     private suppressNextAbortChat = false;
+    // Dedupe latch on failure.pausedAt — protects against double-fire
+    // when the same paused snapshot triggers multiple "change" events
+    // (e.g. consumer re-emits during a save). undefined means "no prior
+    // pause observed" so the first real timestamp always lands.
+    private lastPausedAt: number | undefined = undefined;
 
     private readonly editResolvers = new Map<string, PendingResolver<{ approved: boolean; reason?: string }>>();
     private readonly pickResolvers = new Map<string, PendingResolver<Record<string, unknown>>>();
@@ -108,6 +113,9 @@ export class AgentSession {
      */
     async sendOnPause(failure: FailureInfo): Promise<void> {
         if (this.state !== "ready" || !this.sdk) return;
+        const at = failure.pausedAt;
+        if (at !== undefined && at === this.lastPausedAt) return;
+        this.lastPausedAt = at;
         this.state = "sending";
         const ac = new AbortController();
         this.abortCtrl = ac;

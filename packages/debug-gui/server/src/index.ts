@@ -2,7 +2,6 @@ import http from "http";
 import { WebSocketServer } from "ws";
 import path from "path";
 import express from "express";
-import { spawn } from "child_process";
 import { fileURLToPath } from "url";
 import { existsSync } from "fs";
 import { loadConfig, saveConfig } from "./config.js";
@@ -12,17 +11,13 @@ import { MochaRunner, buildMochaFork, spawnShellCommand, killTree } from "./runn
 import { WorkerLink } from "./workerLink.js";
 import { ChromeManager } from "./chromeManager.js";
 import { createApp, WsHub } from "./server.js";
-import { buildSessionConfig } from "./agent.js";
-import { makeEditFileTool } from "./tools/editFile.js";
-import { makePickElementTool } from "./tools/pickElement.js";
-import { makeAskUserTool } from "./tools/askUser.js";
-import { drainResolvers, type PendingResolver } from "./resolvers.js";
 import { SCREENSHOT_DIR } from "./screenshot.js";
 import { launchAppMode } from "./launcher.js";
 import { ensureLspConfig } from "./lspInit.js";
 import type { LspWarning } from "./messages.js";
 import { isPaused } from "@debug-gui/protocol";
 import { CopilotClient } from "@github/copilot-sdk";
+import { AgentSession } from "./domain/AgentSession.js";
 
 export const VERSION = "0.0.1";
 
@@ -60,40 +55,6 @@ export async function main(
         if (!isPaused(session.getState().state)) session.markDone();
     });
 
-    const editResolvers = new Map<string, PendingResolver<{ approved: boolean; reason?: string }>>();
-    const pickResolvers = new Map<string, PendingResolver<Record<string, unknown>>>();
-    const askResolvers = new Map<string, PendingResolver<{ choice: string | null; freeText: string | null }>>();
-    // PIDs of in-flight playwright-cli pick subprocesses, keyed by reqId.
-    // Lets pick_cancel kill the right child without leaking handles after
-    // natural completion.
-    const pickPids = new Map<string, number>();
-
-    // Kill every in-flight pick child and broadcast pick_done for each.
-    // Without this, agent_abort/cancel would leave the playwright-cli
-    // overlay injected in the test browser and the GUI's "Pick mode
-    // active" banner never clears (the banner is only dismissed by a
-    // matching pick_done). drainResolvers alone rejects the resolver
-    // map but doesn't touch the spawned children or the UI signal.
-    const killAllPicks = async () => {
-        const entries = [...pickPids.entries()];
-        pickPids.clear();
-        for (const [reqId, pid] of entries) {
-            try { await killTree(pid); } catch { /* already gone */ }
-            hub.broadcast({ type: "pick_done", reqId });
-        }
-    };
-
-    // Tell the UI to clear any open prompt panels driven by ask_user
-    // tool calls. drainResolvers rejects the agent-side promise but
-    // doesn't touch the UI's pendingPrompt state — without an explicit
-    // prompt_done broadcast the panel sticks after Stop. Call this
-    // BEFORE drainResolvers(askResolvers) so the reqIds are still in
-    // the map.
-    const closeAllPrompts = () => {
-        for (const reqId of askResolvers.keys()) {
-            hub.broadcast({ type: "prompt_done", reqId });
-        }
-    };
     const here = path.dirname(fileURLToPath(import.meta.url));
     const pickScriptPath = path.resolve(
         here,
@@ -147,47 +108,31 @@ export async function main(
         ws.on("close", () => hub.remove(ws));
     });
 
-    session.events.on("change", (snap) => {
-        hub.broadcast({ type: "status", state: snap.state });
-        if (isPaused(snap.state) && snap.currentFailure) {
-            hub.broadcast({ type: "paused", failure: snap.currentFailure });
-        }
-    });
-
     const copilot = new CopilotClient({
         sessionIdleTimeoutSeconds: 1800,
         cliArgs: ["--experimental"],
     });
     await copilot.start();
 
-    // Tracked across messages so agent_abort can reach the live session and
-    // suppress the rejection that abort() causes in sendAndWait().
-    let currentAgentSession: Awaited<ReturnType<typeof copilot.createSession>> | null = null;
-    let aborting = false;
-    // Continue tears down the agent as a side-effect of the worker swap, not
-    // as a user-initiated abort, so the chat_final "[aborted by user]" line
-    // would mislead QA into thinking the resume failed. Set true only by the
-    // continue path; cleared by onChange's finally so the next real abort
-    // surfaces normally.
-    let suppressAbortChat = false;
-    // Trips the local Promise.race that wraps sendAndWait. The Copilot SDK's
-    // sendAndWait only resolves/rejects on session.idle / session.error from
-    // the CLI; abort() RPCs the CLI but doesn't unblock the local await. If
-    // the agent is mid-tool-call (e.g. Bash running playwright-cli), idle
-    // can lag tens of seconds, during which the GUI's spinner + Stop button
-    // stay visible and Stop feels dead. Tripping this rejects sendAndWait
-    // immediately so the catch/finally can clear UI state without waiting.
-    let agentSendReject: ((e: Error) => void) | null = null;
+    // The live agent. AgentSession encapsulates SDK session lifecycle,
+    // tool resolvers, sendAndWait abort race, and the stale-event guard
+    // that used to live as six closure flags in this file.
+    let currentAgent: AgentSession | null = null;
+
     let preRunPid: number | undefined;
     let preRunCanceled = false;
 
-    // Tracked so Run/Continue can off the prior listener + exit handler
-    // before installing fresh ones for the new agent session. Without this
-    // the closures over the old (aborted) agent session would still fire
-    // on subsequent pauses and call sendAndWait on a dead session — the
-    // observed "spinner stuck, Stop does nothing" symptom.
-    let currentOnChange: ((snap: ReturnType<typeof session.getState>) => void) | null = null;
-    let currentExitHandler: (() => void) | null = null;
+    session.events.on("change", (snap) => {
+        hub.broadcast({ type: "status", state: snap.state });
+        if (isPaused(snap.state) && snap.currentFailure) {
+            hub.broadcast({ type: "paused", failure: snap.currentFailure });
+            // Fire-and-forget — AgentSession dedupes by failure.pausedAt
+            // internally and is a no-op when state isn't `ready`, so we
+            // don't need to gate on currentAgent presence here beyond
+            // the optional-chain. Errors are logged inside the class.
+            void currentAgent?.sendOnPause(snap.currentFailure);
+        }
+    });
 
     // Forks the Mocha worker, attaches the IPC link, and records the options
     // so a later Continue can re-fork the same spec. markRunning happens
@@ -222,332 +167,39 @@ export async function main(
         lastRunOpts = opts;
     }
 
-    // Fully tears down the current agent: trips local race, aborts the
-    // mid-flight message, AND disconnects the session. abort() alone is
-    // not enough — per the Copilot SDK docs it only cancels the current
-    // *message*, "the session remains valid and can continue to be used."
-    // In-flight tool calls (Bash/playwright-cli subprocesses, streaming
-    // LLM responses) keep firing events on the original session, which
-    // bleed through stale `assistant.message` / `command.execute`
-    // listeners as background activity after Stop. disconnect() severs
-    // the session connection so those events stop.
-    //
-    // Run + Continue call this before creating a new session;
-    // agent_abort + cancel call it as the terminal teardown.
-    //
-    // `suppressAbortChat`: when true AND a sendAndWait reject is actually
-    // fired, skip the "[aborted by user]" chat line. Continue passes this
-    // because the teardown is a worker swap, not a user abort.
-    async function tearDownCurrentAgent(
-        reason: string,
-        opts: { suppressAbortChat?: boolean } = {},
-    ): Promise<void> {
-        if (agentSendReject) {
-            if (opts.suppressAbortChat) suppressAbortChat = true;
-            aborting = true;
-            const reject = agentSendReject;
-            agentSendReject = null;
-            reject(new Error(reason));
-        }
-        if (currentAgentSession) {
-            const sess = currentAgentSession;
-            currentAgentSession = null; // prevent re-entry
-            try { await sess.abort(); } catch { /* ignore */ }
-            try { await sess.disconnect(); } catch { /* ignore */ }
-        }
-    }
-
-    // Stale-tool guard: when Stop / Cancel / Continue tears down the agent
-    // session, currentAgentSession is null'd before the disconnect await
-    // resolves. The Copilot SDK can still invoke our tool callbacks during
-    // that window from buffered events. Without this gate, a late ask_user
-    // creates a new prompt panel AFTER "[aborted by user]" — the user
-    // observed this as a stuck prompt panel post-Stop.
-    const isAgentTornDown = () => currentAgentSession === null;
-
-    const tools = [
-        makeEditFileTool({
-            onPropose: (file, oldCode, newCode) => {
-                if (isAgentTornDown()) {
-                    return Promise.reject(new Error("agent session torn down"));
-                }
-                const reqId = Math.random().toString(36).slice(2);
-                return new Promise((resolve, reject) => {
-                    editResolvers.set(reqId, { resolve, reject });
-                    hub.broadcast({ type: "diff", reqId, file, oldCode, newCode });
-                });
-            },
-        }),
-        makePickElementTool({
-            onPick: (hint) => {
-                if (isAgentTornDown()) {
-                    return Promise.reject(new Error("agent session torn down"));
-                }
-                // Spawn playwright-cli's pick-element script against the test
-                // runner's CDP port. The script injects hover-highlight + click
-                // handlers into the *test* browser (not debug-gui's own UI) and
-                // blocks until QA clicks. Stdout is JSON with DOM attributes +
-                // frame chain — exactly what the agent needs to build a selector.
-                //
-                // playwright-cli operates on named sessions. We attach a fresh
-                // session per pick (cheap; daemon spin-up is ~1s) and detach
-                // after run-code returns, so concurrent picks don't collide
-                // and we don't leak sessions across runs.
-                const reqId = Math.random().toString(36).slice(2);
-                const sessionName = `dgui_pick_${reqId}`;
-                // Use the live Chrome's auto-picked port. ChromeManager
-                // launches with --remote-debugging-port=0, so config.cdp.port
-                // (legacy default 9222) is no longer where Chrome listens.
-                // Falling back to config.cdp.port preserves behaviour for
-                // any out-of-band CDP user during the transition.
-                const cdpPort = chrome.getHandle()?.port ?? config.cdp.port;
-                hub.broadcast({ type: "pick", reqId, hint });
-                return new Promise<Record<string, unknown>>((resolve, reject) => {
-                    pickResolvers.set(reqId, { resolve, reject });
-                    const cmd = [
-                        `npx playwright-cli attach --cdp="http://localhost:${cdpPort}" --session=${sessionName}`,
-                        `npx playwright-cli -s=${sessionName} --raw run-code --filename="${pickScriptPath}"`,
-                    ].join(" && ");
-                    const child = spawn(cmd, { shell: true, env: process.env });
-                    if (child.pid) pickPids.set(reqId, child.pid);
-                    let stdout = "";
-                    let stderr = "";
-                    child.stdout?.on("data", (b) => { stdout += b.toString(); });
-                    child.stderr?.on("data", (b) => { stderr += b.toString(); });
-                    const cleanup = () => {
-                        // best-effort detach so the session daemon doesn't
-                        // outlive this pick. Errors here are silent — the
-                        // session may already be gone.
-                        spawn(`npx playwright-cli -s=${sessionName} detach`, {
-                            shell: true,
-                            env: process.env,
-                            stdio: "ignore",
-                        });
-                    };
-                    child.on("exit", (code) => {
-                        pickPids.delete(reqId);
-                        const r = pickResolvers.get(reqId);
-                        if (!r) { cleanup(); return; }
-                        pickResolvers.delete(reqId);
-                        hub.broadcast({ type: "pick_done", reqId });
-                        if (code !== 0) {
-                            cleanup();
-                            r.reject(new Error(`pick-element exited ${code}: ${(stderr || stdout).trim().slice(-500)}`));
-                            return;
-                        }
-                        // attach prints its own banner before run-code's JSON.
-                        // pick-element.js outputs a single JSON object on the
-                        // last line, so grab the last {...} block.
-                        const jsonMatch = stdout.match(/\{[\s\S]*\}\s*$/);
-                        cleanup();
-                        if (!jsonMatch) {
-                            r.reject(new Error(`pick-element no JSON in stdout: ${stdout.trim().slice(-500)}`));
-                            return;
-                        }
-                        try {
-                            r.resolve(JSON.parse(jsonMatch[0]));
-                        } catch (e: any) {
-                            r.reject(new Error(`pick-element JSON parse: ${e?.message ?? e}`));
-                        }
-                    });
-                    child.on("error", (e) => {
-                        pickPids.delete(reqId);
-                        cleanup();
-                        const r = pickResolvers.get(reqId);
-                        if (!r) return;
-                        pickResolvers.delete(reqId);
-                        hub.broadcast({ type: "pick_done", reqId });
-                        r.reject(e);
-                    });
-                });
-            },
-        }),
-        makeAskUserTool({
-            onAsk: (summary, options, allowFreeText) => {
-                if (isAgentTornDown()) {
-                    return Promise.reject(new Error("agent session torn down"));
-                }
-                // Manual mode always allows free text so QA can surface context
-                // the agent's CDP inspection can't see; force it here so a model
-                // that disables it in args can't override the mode.
-                const effectiveAllowFreeText =
-                    config.agent.mode === "manual" ? true : allowFreeText;
-                const reqId = Math.random().toString(36).slice(2);
-                return new Promise((resolve, reject) => {
-                    askResolvers.set(reqId, { resolve, reject });
-                    hub.broadcast({
-                        type: "prompt",
-                        reqId,
-                        summary,
-                        options,
-                        allowFreeText: effectiveAllowFreeText,
-                    });
-                });
-            },
-        }),
-    ];
-
-    // Creates a fresh agent session for the just-started worker. Both Run
+    // Spin up a fresh AgentSession for the just-started worker. Both Run
     // and Continue call this AFTER startMochaWorker so each fork gets a
     // clean agent context — reusing an aborted session leaves sendAndWait
     // pending forever (no idle event fires) and the spinner sticks.
     //
-    // Off's any prior listener + exit handler before installing fresh
-    // ones; the prior closures referenced the now-aborted agent session.
+    // The class internally guards against late tool-callback events with
+    // an isTornDown() check, so this index.ts no longer has to track
+    // per-agent listener lifetimes manually.
     async function setupAgentForRun(): Promise<void> {
-        // Drop stale references — these are closures over the previous
-        // (aborted) agent session.
-        if (currentOnChange) {
-            session.events.off("change", currentOnChange);
-            currentOnChange = null;
-        }
-        if (currentExitHandler) {
-            runner.off("exit", currentExitHandler);
-            currentExitHandler = null;
-        }
-
-        let agentSession: Awaited<ReturnType<typeof copilot.createSession>> | null = null;
+        const agent = new AgentSession({
+            copilot,
+            config: { mode: config.agent.mode, idleTimeoutMs: config.agent.idleTimeoutMs },
+            cdpPort: () => chrome.getHandle()?.port ?? 0,
+            broadcast: (event) => hub.broadcast(event),
+            pickScriptPath,
+            fallbackCdpPort: config.cdp.port,
+        });
+        currentAgent = agent;
         try {
-            agentSession = await copilot.createSession(
-                buildSessionConfig({
-                    tools,
-                    onPick: () => Promise.resolve({}),
-                    onEdit: async () => ({ approved: true }),
-                })
-            );
-            currentAgentSession = agentSession;
+            await agent.setup();
         } catch (e: any) {
             hub.broadcast({ type: "error", message: `Copilot session: ${e?.message ?? e}` });
             console.error("createSession failed:", e);
-            return;
+            if (currentAgent === agent) currentAgent = null;
         }
-        if (!agentSession) return;
-
-        // Stale-session guard: when Stop fires tearDownCurrentAgent, the
-        // SDK's `await sess.disconnect()` may resolve while events are still
-        // buffered in flight. Without this check those late events bleed
-        // through as new chat lines and "calling ask_user" activity AFTER
-        // "[aborted by user]". Compare the closure-captured session with
-        // the module-level currentAgentSession (null'd in tearDown) to drop
-        // them.
-        const mySession = agentSession;
-        agentSession.on("assistant.message", (ev: any) => {
-            if (mySession !== currentAgentSession) return;
-            const content: string = ev?.data?.content ?? "";
-            if (content && !aborting) hub.broadcast({ type: "chat_final", content });
-        });
-        agentSession.on("command.execute", (ev: any) => {
-            if (mySession !== currentAgentSession) return;
-            const name: string = ev?.data?.name ?? ev?.data?.tool ?? "tool";
-            hub.broadcast({ type: "agent_activity", label: `calling ${name}` });
-        });
-        agentSession.on("command.completed", () => {
-            if (mySession !== currentAgentSession) return;
-            hub.broadcast({ type: "agent_activity", label: "" });
-        });
-
-        let lastPausedAt = 0;
-        const onChange = async (snap: ReturnType<typeof session.getState>) => {
-            if (snap.state !== "paused") return;
-            // DU narrowed: PausedSnapshot guarantees currentFailure + pausedAt.
-            const at = snap.pausedAt;
-            if (at === lastPausedAt) return;
-            lastPausedAt = at;
-            hub.broadcast({ type: "agent_thinking", active: true });
-            const abortPromise = new Promise<never>((_, reject) => {
-                agentSendReject = reject;
-            });
-            try {
-                // sendAndWait blocks until session.idle so the spinner
-                // stays up until the agent actually finishes. Plain
-                // send() resolves as soon as the RPC is acknowledged.
-                // Race against agentSendReject so an agent_abort or
-                // cancel can break out without waiting for the SDK
-                // to surface session.idle (the CLI may not emit it
-                // until any in-flight tool call returns).
-                const f = snap.currentFailure;
-                const manualPreamble =
-                    config.agent.mode === "manual"
-                        ? "You are in MANUAL mode. Always call ask_user before edit_file — the walkthrough SKILL describes the conversation pattern.\n\n"
-                        : "";
-                await Promise.race([abortPromise, agentSession!.sendAndWait(
-                    {
-                        prompt:
-                            manualPreamble +
-                            `A mocha test just failed and the walkthrough hook paused execution.\n\n` +
-                            `Failure details:\n` +
-                            `  test:  ${f.test}\n` +
-                            `  suite: ${f.suite ?? "(none)"}\n` +
-                            `  file:  ${f.file}\n` +
-                            `  error: ${f.error}\n` +
-                            `  stack:\n${f.stack}\n\n` +
-                            `The test browser is reachable via CDP at http://localhost:${chrome.getHandle()?.port ?? config.cdp.port}.\n\n` +
-                            `Decide your inspection approach using the walkthrough SKILL:\n` +
-                            `- If this is an element-related failure (selector miss, "not found", ` +
-                            `"not interactable", stale element, wrong-element assertions), call the ` +
-                            `pick_element tool first so QA shows you the real element — that is more ` +
-                            `reliable for selector work than DOM inspection.\n` +
-                            `- For non-element failures (timing, navigation, console errors, network, ` +
-                            `page state, frame topology), use the playwright-cli skill — its references ` +
-                            `cover the attach/-s/detach pattern and each inspection capability.\n\n` +
-                            `Do NOT run mocha, npm test, or any test command yourself. The GUI ` +
-                            `orchestrates test execution. After you apply the fix via edit_file, stop ` +
-                            `and let QA click Continue in the GUI to re-execute the suite with the ` +
-                            `fix applied — the GUI re-forks the worker so a fresh require cache ` +
-                            `picks up your edit.`,
-                    },
-                    config.agent.idleTimeoutMs,
-                )]);
-            } catch (e: any) {
-                if (aborting) {
-                    if (!suppressAbortChat) {
-                        hub.broadcast({ type: "chat_final", content: "[aborted by user]" });
-                    }
-                } else {
-                    hub.broadcast({ type: "error", message: `Agent send: ${e?.message ?? e}` });
-                    console.error("agent.send failed:", e);
-                }
-            } finally {
-                agentSendReject = null;
-                aborting = false;
-                suppressAbortChat = false;
-                hub.broadcast({ type: "agent_thinking", active: false });
-                hub.broadcast({ type: "agent_activity", label: "" });
-            }
-        };
-        currentOnChange = onChange;
-        session.events.on("change", onChange);
-
-        // Self-re-registering exit handler so the listener survives a
-        // Continue worker swap. During swap, switchingWorkers is true →
-        // re-arm and skip cleanup. On a real session-end (Stop/Cancel/done),
-        // switchingWorkers is false → tear down. currentExitHandler tracks
-        // the live registration so the next setupAgentForRun call can
-        // remove it before installing its own.
-        const installRunCleanup = () => {
-            const handler = () => {
-                if (switchingWorkers) {
-                    installRunCleanup();
-                    return;
-                }
-                if (currentOnChange) {
-                    session.events.off("change", currentOnChange);
-                    currentOnChange = null;
-                }
-                currentAgentSession = null;
-                currentExitHandler = null;
-            };
-            currentExitHandler = handler;
-            runner.once("exit", handler);
-        };
-        installRunCleanup();
     }
 
     hub.onMessage(async (cmd) => {
         if (cmd.type === "run") {
             const spec = suites.find((s) => s.relPath === cmd.spec)?.absPath;
             if (!spec) return;
-            await tearDownCurrentAgent("superseded by new run");
+            await currentAgent?.tearDown({ reason: "superseded by new run" });
+            currentAgent = null;
             // End-to-end coverage: test/smoke.sh — pre-run happy-path + failure paths (Task 10)
             // ── Pre-run step ─────────────────────────────────────
             if (config.preRun && !cmd.skipPreRun) {
@@ -593,11 +245,7 @@ export async function main(
             await setupAgentForRun();
         }
         if (cmd.type === "diff_decision") {
-            const resolver = editResolvers.get(cmd.reqId);
-            if (resolver) {
-                resolver.resolve({ approved: cmd.action === "approved", reason: cmd.reason });
-                editResolvers.delete(cmd.reqId);
-            }
+            currentAgent?.resolveEditDecision(cmd.reqId, cmd.action === "approved", cmd.reason);
             // QA's approval of the fix doesn't itself re-run anything; the
             // GUI explicitly tells them what to click next. Continue is the
             // right button now — it stops the current worker and forks a
@@ -613,24 +261,10 @@ export async function main(
             }
         }
         if (cmd.type === "pick_cancel") {
-            const pid = pickPids.get(cmd.reqId);
-            if (pid) {
-                try { await killTree(pid); } catch { /* already gone */ }
-                pickPids.delete(cmd.reqId);
-            }
-            const resolver = pickResolvers.get(cmd.reqId);
-            if (resolver) {
-                pickResolvers.delete(cmd.reqId);
-                hub.broadcast({ type: "pick_done", reqId: cmd.reqId });
-                resolver.reject(new Error("pick cancelled by QA"));
-            }
+            await currentAgent?.cancelPick(cmd.reqId);
         }
         if (cmd.type === "prompt_response") {
-            const resolver = askResolvers.get(cmd.reqId);
-            if (resolver) {
-                resolver.resolve({ choice: cmd.choice, freeText: cmd.freeText });
-                askResolvers.delete(cmd.reqId);
-            }
+            currentAgent?.resolvePromptResponse(cmd.reqId, cmd.choice, cmd.freeText);
         }
         if (cmd.type === "continue") {
             // Continue stops the current worker and re-forks the same spec
@@ -650,15 +284,11 @@ export async function main(
                 // the aborted session leaves sendAndWait pending forever
                 // (no idle event fires post-abort), which manifests as a
                 // stuck "Agent thinking" spinner that Stop can't clear.
-                // suppressAbortChat: this teardown is a worker swap, not a
+                // suppressChat: this teardown is a worker swap, not a
                 // user-initiated abort — surfacing "[aborted by user]" in
                 // chat would falsely suggest the resume failed.
-                await tearDownCurrentAgent("superseded by continue", { suppressAbortChat: true });
-                await killAllPicks();
-                closeAllPrompts();
-                drainResolvers(editResolvers);
-                drainResolvers(pickResolvers);
-                drainResolvers(askResolvers);
+                await currentAgent?.tearDown({ reason: "superseded by continue", suppressChat: true });
+                currentAgent = null;
 
                 // Graceful stop with hard-kill fallback (5 s cap inside
                 // sendStopAndKill). Browser stays alive — server-managed
@@ -673,22 +303,11 @@ export async function main(
             }
         }
         if (cmd.type === "agent_abort") {
-            // tearDownCurrentAgent: rejects local race → onChange's
-            // catch+finally clears UI; then abort + disconnect the session
-            // so in-flight tool calls stop firing background events.
-            await tearDownCurrentAgent("aborted by user");
-            await killAllPicks();
-            closeAllPrompts();
-            drainResolvers(editResolvers);
-            drainResolvers(pickResolvers);
-            drainResolvers(askResolvers);
-            // Defensive UI clear: onChange's finally already clears these
-            // on the rejector path, but if agentSendReject was null
-            // (sendAndWait already resolved, or consumed by a prior
-            // Continue) the spinner can stick. Force-clear so Stop
-            // always gives the user agency back.
-            hub.broadcast({ type: "agent_thinking", active: false });
-            hub.broadcast({ type: "agent_activity", label: "" });
+            // tearDown handles: trip sendAndWait race, abort + disconnect
+            // SDK session, drain resolver maps + kill in-flight pick
+            // subprocesses, and broadcast the final UI-clear events.
+            await currentAgent?.tearDown({ reason: "aborted by user" });
+            currentAgent = null;
         }
         if (cmd.type === "cancel") {
             if (preRunPid) {
@@ -696,12 +315,8 @@ export async function main(
                 await killTree(preRunPid);
                 preRunPid = undefined;
             }
-            await tearDownCurrentAgent("cancelled by user");
-            // Kill picks before sendStopAndKill — the latter waits up to
-            // 5 s for graceful worker shutdown, and we don't want the pick
-            // overlay lingering in the test browser during that wait.
-            await killAllPicks();
-            closeAllPrompts();
+            await currentAgent?.tearDown({ reason: "cancelled by user" });
+            currentAgent = null;
             // Graceful stop with hard-kill fallback. Sends {type:'stop'} so
             // afterEach throws → Mocha runs afterAll (WDIO deleteSession)
             // → worker exits cleanly. Falls back to killTree() after 5 s
@@ -712,9 +327,6 @@ export async function main(
             // opposite path (no kill).
             await chrome.kill();
             session.reset();
-            drainResolvers(editResolvers);
-            drainResolvers(pickResolvers);
-            drainResolvers(askResolvers);
             // Stop ends the run; a subsequent Continue would have nothing to
             // resume into, so clear the last-run snapshot.
             lastRunOpts = null;
