@@ -448,8 +448,9 @@ export async function main(
 
         let lastPausedAt = 0;
         const onChange = async (snap: ReturnType<typeof session.getState>) => {
-            if (!isPaused(snap.state) || !snap.currentFailure) return;
-            const at = snap.currentFailure.pausedAt ?? 0;
+            if (snap.state !== "paused") return;
+            // DU narrowed: PausedSnapshot guarantees currentFailure + pausedAt.
+            const at = snap.pausedAt;
             if (at === lastPausedAt) return;
             lastPausedAt = at;
             hub.broadcast({ type: "agent_thinking", active: true });
@@ -638,8 +639,9 @@ export async function main(
             // are bound to the cached class — only a re-fork picks them up.
             // Reentrancy guard: drop racing Continue clicks.
             if (!lastRunOpts || switchingWorkers) return;
-            const failure = session.getState().currentFailure;
-            if (!failure) return;
+            // Continue is only meaningful from `paused` — there must be a
+            // live failure to resume from. Bail silently for stray clicks.
+            if (session.getState().state !== "paused") return;
 
             switchingWorkers = true;
             try {

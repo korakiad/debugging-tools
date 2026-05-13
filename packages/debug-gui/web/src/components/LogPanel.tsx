@@ -33,16 +33,20 @@ export function LogPanel() {
     const notice = useStore((s) => s.notice);
     const dismissNotice = useStore((s) => s.dismissNotice);
 
+    // Failure + pausedAt only exist on PausedSnapshot under the DU; narrow
+    // explicitly so deriveLog reads them through the proper variant.
+    const currentFailure = sessionState.state === "paused" ? sessionState.currentFailure : undefined;
+    const pausedAt = sessionState.state === "paused" ? sessionState.pausedAt : undefined;
     const { rows, counts } = useMemo(
         () =>
             deriveLog({
                 log,
                 runStartedAt: startedAt,
-                currentFailure: sessionState.currentFailure,
-                pausedAt: sessionState.pausedAt,
+                currentFailure,
+                pausedAt,
                 pendingDiff,
             }),
-        [log, startedAt, sessionState.currentFailure, sessionState.pausedAt, pendingDiff]
+        [log, startedAt, currentFailure, pausedAt, pendingDiff]
     );
 
     // Source-of-truth: source lines, not derived rows. splitLines can turn

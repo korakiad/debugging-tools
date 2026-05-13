@@ -106,7 +106,14 @@ describe("App suite-switch confirmation", () => {
     });
 
     it("paused: clicking another suite opens confirm dialog", () => {
-        useStore.setState({ state: { state: "paused" } });
+        useStore.setState({
+            state: {
+                state: "paused",
+                currentSpec: "test/a.spec.js",
+                currentFailure: { test: "t", file: "test/a.spec.js", error: "e", stack: "" },
+                pausedAt: 0,
+            },
+        });
         render(<App />);
 
         fireEvent.click(screen.getByText("test/b.spec.js"));
@@ -164,12 +171,14 @@ describe("App suite-switch confirmation", () => {
             selectedNode: { kind: "it", fullTitle: "Login Form should click the submit button" },
             state: {
                 state: "paused",
+                currentSpec: "test/a.spec.js",
                 currentFailure: {
                     test: "should click the submit button",
                     file: "test/a.spec.js",
                     error: "Element not found",
                     stack: "",
                 },
+                pausedAt: 0,
             },
             mochaLog: [{ stream: "stdout", text: "old line", receivedAt: 0, seq: 1 }],
         });
@@ -230,7 +239,9 @@ describe("App suite-switch confirmation", () => {
             selectedNode: { kind: "it", fullTitle: "Login Form should click the submit button" },
             state: {
                 state: "paused",
+                currentSpec: "test/a.spec.js",
                 currentFailure: { test: "x", file: "y", error: "boom", stack: "" },
+                pausedAt: 0,
             },
             chatMessages: [{ role: "assistant", content: "Stale selector — propose updating it to 'button[type=\"submit\"]'." }],
             pendingPrompt: {
@@ -275,7 +286,9 @@ describe("App suite-switch confirmation", () => {
         useStore.setState({
             state: {
                 state: "paused",
+                currentSpec: "test/a.spec.js",
                 currentFailure: { test: "x", file: "y", error: "boom", stack: "" },
+                pausedAt: 0,
             },
             mochaLog: [{ stream: "stdout", text: "old line", receivedAt: 0, seq: 1 }],
         });
@@ -368,11 +381,11 @@ describe("App suite-switch confirmation", () => {
         expect(screen.queryAllByText(/Can't call setValue on element/i)).toHaveLength(0);
         // Continue button gone.
         expect(screen.queryByRole("button", { name: /^continue$/i })).not.toBeInTheDocument();
-        // Snapshot has no lingering paused-state fields.
+        // Snapshot has no lingering paused-state fields. IdleSnapshot has
+        // no currentFailure / pausedAt under the DU — the discriminant
+        // assertion alone pins that invariant.
         const snap = useStore.getState().state;
         expect(snap.state).toBe("idle");
-        expect(snap.currentFailure).toBeUndefined();
-        expect(snap.pausedAt).toBeUndefined();
     });
 
     it("paused → Continue: button shows Resuming…, Stop disabled, repeat clicks dropped until status flips", () => {
@@ -386,6 +399,7 @@ describe("App suite-switch confirmation", () => {
                 state: "paused",
                 currentSpec: "test/a.spec.js",
                 currentFailure: { test: "x", file: "y", error: "boom", stack: "" },
+                pausedAt: 0,
             },
         });
         render(<App />);

@@ -2,6 +2,7 @@ import { create } from "zustand";
 import {
     STATE,
     isLive,
+    assertNever,
     type SessionState,
     type SessionSnapshot,
     type FailureInfo,
@@ -102,7 +103,10 @@ interface Store {
     dismissLspWarning: () => void;
     notice: Notice | null;
     dismissNotice: () => void;
-    applyEvent: (e: ServerEvent | { type: string;[k: string]: unknown }) => void;
+    // Accepts ServerEvent strictly. Phase 6 will parse + validate at the
+    // WS boundary (useWebSocket); for now, useWebSocket casts JSON.parse
+    // result to ServerEvent before invoking.
+    applyEvent: (e: ServerEvent) => void;
     // Switch the active spec/node selection.
     //
     //   * Same spec, same node → no-op.
@@ -153,163 +157,185 @@ export const useStore = create<Store>((set) => ({
     dismissLspWarning: () => set({ lspWarning: null }),
     notice: null,
     dismissNotice: () => set({ notice: null }),
-    applyEvent: (raw) =>
+    applyEvent: (e) =>
         set((s) => {
-            const e = raw as { type: string;[k: string]: any };
-            if (e.type === "init") {
-                return {
-                    suites: e.suites, config: e.config, state: e.state,
-                    mochaLog: [], mochaExitCode: undefined,
-                    runStartedAt: null,
-                    agentThinking: false, agentActivity: "",
-                    notice: null,
-                };
-            }
-            if (e.type === "config_updated") {
-                return { config: e.config };
-            }
-            if (e.type === "suites_updated") {
-                const next: Suite[] = e.suites;
-                const stillThere = !!s.selectedSpec && next.some((suite) => suite.relPath === s.selectedSpec);
-                // Drop cached trees for specs that no longer exist — they'd
-                // render under file rows that have been removed from discovery.
-                const validSpecs = new Set(next.map((suite) => suite.relPath));
-                const trimmedTrees: Record<string, SuiteTree> = {};
-                for (const [k, v] of Object.entries(s.suiteTrees)) {
-                    if (validSpecs.has(k)) trimmedTrees[k] = v;
-                }
-                return {
-                    suites: next,
-                    selectedSpec: stillThere ? s.selectedSpec : null,
-                    selectedNode: stillThere ? s.selectedNode : null,
-                    suiteTrees: trimmedTrees,
-                };
-            }
-            if (e.type === "status") {
-                if (e.state === STATE.RUNNING || e.state === STATE.PRE_RUNNING) {
-                    if (isLive(s.state.state)) {
-                        // Resume from paused, or pre-running→running on
-                        // the same run. Don't wipe agent-session state —
-                        // pendingDiff/Pick/Prompt and chatMessages may
-                        // still belong to the in-flight session, and
-                        // mochaLog/runStartedAt anchor the same run.
-                        // currentFailure/pausedAt only describe the
-                        // paused state we just left — drop them so the
-                        // FailureCard and synthetic FAIL log row don't
-                        // linger across Continue.
-                        return { state: { state: e.state, currentSpec: s.state.currentSpec } };
-                    }
-                    // Fresh run starting from idle/done. The prior
-                    // session's resolvers were either resolved by QA or
-                    // rejected by the server's cancel handler, so the
-                    // chat / pendingDiff / pendingPick / pendingPrompt
-                    // we still hold are stale UI under the new run.
-                    // Same scope as selectSuite when the (spec, grep)
-                    // tuple changes — see the contract on Store.
+            switch (e.type) {
+                case "init":
                     return {
-                        state: { state: e.state, currentSpec: s.state.currentSpec },
+                        suites: e.suites as Suite[],
+                        config: e.config as Record<string, unknown>,
+                        state: e.state,
                         mochaLog: [], mochaExitCode: undefined,
-                        runStartedAt: Date.now(),
+                        runStartedAt: null,
                         agentThinking: false, agentActivity: "",
-                        chatMessages: [],
-                        pendingDiff: null,
-                        pendingPick: null,
-                        pendingPrompt: null,
                         notice: null,
                     };
-                }
-                // idle/done: drop currentFailure/pausedAt so a Stop click
-                // while paused (or a natural finish landing on a paused
-                // leaf) doesn't leave the FailureCard / synthetic FAIL
-                // log row visible. `runStartedAt` is a top-level field
-                // (not part of state), preserved across this transition
-                // so deriveLog can still anchor row times for log lines
-                // captured during the run; the next run resets the
-                // anchor in the running branch above.
-                return { state: { state: e.state, currentSpec: s.state.currentSpec } };
-            }
-            if (e.type === "paused") {
-                return { state: { ...s.state, state: STATE.PAUSED, currentFailure: e.failure, pausedAt: Date.now() } };
-            }
-            if (e.type === "diff") {
-                return { pendingDiff: { reqId: e.reqId, file: e.file, oldCode: e.oldCode, newCode: e.newCode, receivedAt: Date.now() } };
-            }
-            if (e.type === "pick") {
-                return { pendingPick: { reqId: e.reqId, hint: e.hint } };
-            }
-            if (e.type === "pick_done") {
-                if (s.pendingPick?.reqId === e.reqId) return { pendingPick: null };
-                return {};
-            }
-            if (e.type === "prompt") {
-                return {
-                    pendingPrompt: {
-                        reqId: e.reqId,
-                        summary: e.summary,
-                        options: e.options,
-                        allowFreeText: e.allowFreeText,
-                    },
-                };
-            }
-            // Symmetric to pick_done. Server emits this when the underlying
-            // ask_user resolver is rejected (Stop / Cancel / Continue) so
-            // the prompt panel doesn't stick after the agent's tool call
-            // is gone.
-            if (e.type === "prompt_done") {
-                if (s.pendingPrompt?.reqId === e.reqId) return { pendingPrompt: null };
-                return {};
-            }
-            if (e.type === "mocha_log") {
-                const lastSeq = s.mochaLog.length > 0 ? s.mochaLog[s.mochaLog.length - 1].seq : 0;
-                const next = [
-                    ...s.mochaLog,
-                    { stream: e.stream, text: e.text, receivedAt: Date.now(), seq: lastSeq + 1 },
-                ];
-                return { mochaLog: next.slice(-500) };
-            }
-            if (e.type === "mocha_exit") {
-                return { mochaExitCode: e.code };
-            }
-            if (e.type === "chat_delta") {
-                const last = s.chatMessages[s.chatMessages.length - 1];
-                if (last?.role === "assistant") {
+                case "config_updated":
+                    return { config: e.config as Record<string, unknown> };
+                case "suites_updated": {
+                    const next = e.suites as Suite[];
+                    const stillThere = !!s.selectedSpec && next.some((suite) => suite.relPath === s.selectedSpec);
+                    // Drop cached trees for specs that no longer exist — they'd
+                    // render under file rows that have been removed from discovery.
+                    const validSpecs = new Set(next.map((suite) => suite.relPath));
+                    const trimmedTrees: Record<string, SuiteTree> = {};
+                    for (const [k, v] of Object.entries(s.suiteTrees)) {
+                        if (validSpecs.has(k)) trimmedTrees[k] = v;
+                    }
                     return {
-                        chatMessages: [...s.chatMessages.slice(0, -1), { ...last, content: last.content + e.text }],
+                        suites: next,
+                        selectedSpec: stillThere ? s.selectedSpec : null,
+                        selectedNode: stillThere ? s.selectedNode : null,
+                        suiteTrees: trimmedTrees,
                     };
                 }
-                return {
-                    chatMessages: [...s.chatMessages, { role: "assistant", content: e.text }],
-                };
+                case "status": {
+                    if (e.state === STATE.RUNNING || e.state === STATE.PRE_RUNNING) {
+                        // The wire `status` event carries no spec — currentSpec
+                        // is mirrored from the prior snapshot (set by `init`
+                        // or by a server-side spec context that landed before
+                        // the status broadcast). Pass it through unchanged;
+                        // PreRunning/Running.currentSpec is optional in the DU.
+                        const currentSpec = s.state.currentSpec;
+                        const nextSnap: SessionSnapshot =
+                            e.state === STATE.RUNNING
+                                ? { state: STATE.RUNNING, currentSpec }
+                                : { state: STATE.PRE_RUNNING, currentSpec };
+                        if (isLive(s.state.state)) {
+                            // Resume from paused, or pre-running→running on
+                            // the same run. Don't wipe agent-session state —
+                            // pendingDiff/Pick/Prompt and chatMessages may
+                            // still belong to the in-flight session, and
+                            // mochaLog/runStartedAt anchor the same run.
+                            // currentFailure/pausedAt only describe the
+                            // paused state we just left — drop them so the
+                            // FailureCard and synthetic FAIL log row don't
+                            // linger across Continue.
+                            return { state: nextSnap };
+                        }
+                        // Fresh run starting from idle/done. The prior
+                        // session's resolvers were either resolved by QA or
+                        // rejected by the server's cancel handler, so the
+                        // chat / pendingDiff / pendingPick / pendingPrompt
+                        // we still hold are stale UI under the new run.
+                        // Same scope as selectSuite when the (spec, grep)
+                        // tuple changes — see the contract on Store.
+                        return {
+                            state: nextSnap,
+                            mochaLog: [], mochaExitCode: undefined,
+                            runStartedAt: Date.now(),
+                            agentThinking: false, agentActivity: "",
+                            chatMessages: [],
+                            pendingDiff: null,
+                            pendingPick: null,
+                            pendingPrompt: null,
+                            notice: null,
+                        };
+                    }
+                    // idle/done: drop currentFailure/pausedAt so a Stop click
+                    // while paused (or a natural finish landing on a paused
+                    // leaf) doesn't leave the FailureCard / synthetic FAIL
+                    // log row visible. `runStartedAt` is a top-level field
+                    // (not part of state), preserved across this transition
+                    // so deriveLog can still anchor row times for log lines
+                    // captured during the run; the next run resets the
+                    // anchor in the running branch above.
+                    const nextSnap: SessionSnapshot =
+                        e.state === STATE.IDLE
+                            ? { state: STATE.IDLE, currentSpec: s.state.currentSpec }
+                            : { state: STATE.DONE, currentSpec: s.state.currentSpec };
+                    return { state: nextSnap };
+                }
+                case "paused": {
+                    // Paused requires currentSpec — if we somehow got here
+                    // without one (worker bug), bail rather than corrupt
+                    // the snapshot.
+                    const currentSpec = s.state.currentSpec;
+                    if (!currentSpec) return {};
+                    const failure = e.failure;
+                    return {
+                        state: {
+                            state: STATE.PAUSED,
+                            currentSpec,
+                            currentFailure: failure,
+                            pausedAt: failure.pausedAt ?? Date.now(),
+                        },
+                    };
+                }
+                case "diff":
+                    return { pendingDiff: { reqId: e.reqId, file: e.file, oldCode: e.oldCode, newCode: e.newCode, receivedAt: Date.now() } };
+                case "pick":
+                    return { pendingPick: { reqId: e.reqId, hint: e.hint } };
+                case "pick_done":
+                    if (s.pendingPick?.reqId === e.reqId) return { pendingPick: null };
+                    return {};
+                case "prompt":
+                    return {
+                        pendingPrompt: {
+                            reqId: e.reqId,
+                            summary: e.summary,
+                            options: e.options,
+                            allowFreeText: e.allowFreeText,
+                        },
+                    };
+                // Symmetric to pick_done. Server emits this when the underlying
+                // ask_user resolver is rejected (Stop / Cancel / Continue) so
+                // the prompt panel doesn't stick after the agent's tool call
+                // is gone.
+                case "prompt_done":
+                    if (s.pendingPrompt?.reqId === e.reqId) return { pendingPrompt: null };
+                    return {};
+                case "mocha_log": {
+                    const lastSeq = s.mochaLog.length > 0 ? s.mochaLog[s.mochaLog.length - 1].seq : 0;
+                    const next = [
+                        ...s.mochaLog,
+                        { stream: e.stream, text: e.text, receivedAt: Date.now(), seq: lastSeq + 1 },
+                    ];
+                    return { mochaLog: next.slice(-500) };
+                }
+                case "mocha_exit":
+                    return { mochaExitCode: e.code };
+                case "chat_delta": {
+                    const last = s.chatMessages[s.chatMessages.length - 1];
+                    if (last?.role === "assistant") {
+                        return {
+                            chatMessages: [...s.chatMessages.slice(0, -1), { ...last, content: last.content + e.text }],
+                        };
+                    }
+                    return {
+                        chatMessages: [...s.chatMessages, { role: "assistant", content: e.text }],
+                    };
+                }
+                case "chat_final":
+                    return { chatMessages: [...s.chatMessages, { role: "assistant", content: e.content }] };
+                case "agent_thinking":
+                    return { agentThinking: e.active, agentActivity: e.active ? s.agentActivity : "" };
+                case "agent_activity":
+                    return { agentActivity: e.label };
+                case "error":
+                    return {
+                        chatMessages: [
+                            ...s.chatMessages,
+                            { role: "assistant", content: `[error] ${e.message}` },
+                        ],
+                    };
+                case "lsp/warning":
+                    return { lspWarning: e.warning };
+                case "notice": {
+                    // Latest notice replaces the previous one (in case QA approved
+                    // a second edit before dismissing the first). Cleared on
+                    // dismissNotice() and on fresh-run status transitions above.
+                    const kind: Notice["kind"] =
+                        e.kind === "warning" || e.kind === "error" ? e.kind : "info";
+                    return { notice: { kind, message: String(e.message ?? "") } };
+                }
+                case "test_progress":
+                    // Reserved for future per-test progress UI; currently
+                    // emitted-but-ignored at the store layer.
+                    return {};
+                default:
+                    return assertNever(e, "useStore.applyEvent");
             }
-            if (e.type === "chat_final") {
-                return { chatMessages: [...s.chatMessages, { role: "assistant", content: e.content }] };
-            }
-            if (e.type === "agent_thinking") {
-                return { agentThinking: e.active, agentActivity: e.active ? s.agentActivity : "" };
-            }
-            if (e.type === "agent_activity") {
-                return { agentActivity: e.label };
-            }
-            if (e.type === "error") {
-                return {
-                    chatMessages: [
-                        ...s.chatMessages,
-                        { role: "assistant", content: `[error] ${e.message}` },
-                    ],
-                };
-            }
-            if (e.type === "lsp/warning") {
-                return { lspWarning: e.warning as LspWarning };
-            }
-            if (e.type === "notice") {
-                // Latest notice replaces the previous one (in case QA approved
-                // a second edit before dismissing the first). Cleared on
-                // dismissNotice() and on fresh-run status transitions above.
-                const kind: Notice["kind"] =
-                    e.kind === "warning" || e.kind === "error" ? e.kind : "info";
-                return { notice: { kind, message: String(e.message ?? "") } };
-            }
-            return {};
         }),
     selectSuite: (spec, node) =>
         set((s) => {

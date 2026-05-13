@@ -181,7 +181,14 @@ describe("LogPanel", () => {
             expect(screen.getByText(/^00:05\./)).toBeInTheDocument();
 
             act(() => {
-                useStore.setState({ state: { state: "paused" } });
+                useStore.setState({
+                    state: {
+                        state: "paused",
+                        currentSpec: "a.spec.js",
+                        currentFailure: { test: "t", file: "a.spec.js", error: "e", stack: "" },
+                        pausedAt: 0,
+                    },
+                });
             });
             rerender(<LogPanel />);
 

@@ -378,7 +378,7 @@ export default function App() {
                 )}
             </main>
             <RightPanel>
-                {state.currentFailure && <FailureCard failure={state.currentFailure} />}
+                {state.state === STATE.PAUSED && <FailureCard failure={state.currentFailure} />}
                 {diff && (
                     <DiffView
                         file={diff.file}

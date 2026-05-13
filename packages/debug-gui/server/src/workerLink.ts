@@ -1,5 +1,5 @@
 import { ChildProcess } from "child_process";
-import { STATE, type WorkerOutbound, type WorkerInbound } from "@debug-gui/protocol";
+import { STATE, assertNever, type WorkerOutbound, type WorkerInbound } from "@debug-gui/protocol";
 import { SessionManager } from "./session.js";
 
 // Push-driven adapter for the worker IPC channel. The forked mocha worker
@@ -13,7 +13,10 @@ export class WorkerLink {
 
     attach(child: ChildProcess): void {
         this.child = child;
-        child.on("message", (m: unknown) => this.handle(m as WorkerOutbound));
+        child.on("message", (m: unknown) => {
+            if (!m || typeof m !== "object" || !("type" in m)) return;
+            this.handle(m as WorkerOutbound);
+        });
         child.on("exit", () => {
             this.child = undefined;
             // Mirror the pre-IPC runner.exit handler: only flip to "done" if
@@ -26,17 +29,25 @@ export class WorkerLink {
     }
 
     private handle(m: WorkerOutbound): void {
-        if (!m || typeof m !== "object") return;
-        if (m.type === "paused") {
-            this.session.markPaused(m.failure);
-            return;
-        }
-        if (m.type === "status" && m.state === STATE.RUNNING) {
-            this.session.markRunning(this.session.getState().currentSpec ?? "");
-            return;
-        }
-        if (m.type === "status" && m.state === STATE.DONE) {
-            this.session.markDone();
+        switch (m.type) {
+            case "paused":
+                this.session.markPaused(m.failure);
+                return;
+            case "status":
+                if (m.state === STATE.RUNNING) {
+                    this.session.markRunning(this.session.getState().currentSpec ?? "");
+                } else if (m.state === STATE.DONE) {
+                    this.session.markDone();
+                }
+                return;
+            case "done":
+                // The worker emits this from mocha.run's callback before
+                // exit. The session.markDone for the natural-completion
+                // case is owned by the runner.exit handler in index.ts;
+                // this frame is informational only here.
+                return;
+            default:
+                return assertNever(m, "WorkerLink.handle");
         }
     }
 

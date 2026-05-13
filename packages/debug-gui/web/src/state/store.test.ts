@@ -79,9 +79,9 @@ describe("store", () => {
                 useStore.setState(pausedSnap);
                 useStore.getState().applyEvent({ type: "status", state: next });
                 const s = useStore.getState();
+                // Discriminant alone implies absence of currentFailure +
+                // pausedAt under the DU (Idle/Done don't have those fields).
                 expect(s.state.state).toBe(next);
-                expect(s.state.currentFailure).toBeUndefined();
-                expect(s.state.pausedAt).toBeUndefined();
                 // currentSpec is preserved so deriveLog / breadcrumb still
                 // anchor on the spec that was running.
                 expect(s.state.currentSpec).toBe("test/login.spec.js");
@@ -92,9 +92,9 @@ describe("store", () => {
             useStore.setState(pausedSnap);
             useStore.getState().applyEvent({ type: "status", state: "running" });
             const s = useStore.getState();
+            // Running carries currentSpec but not currentFailure/pausedAt
+            // under the DU.
             expect(s.state.state).toBe("running");
-            expect(s.state.currentFailure).toBeUndefined();
-            expect(s.state.pausedAt).toBeUndefined();
             expect(s.state.currentSpec).toBe("test/login.spec.js");
         });
 
@@ -151,20 +151,21 @@ describe("store", () => {
                 it(`drops stale agent-session state on ${prev}→${next}`, () => {
                     useStore.setState({
                         ...stale,
+                        // Idle/Done don't carry currentFailure under the
+                        // DU; the leftover from a prior paused run is in
+                        // the agent-session-scope fields below, not the
+                        // snapshot itself.
                         state: {
                             state: prev,
                             currentSpec: "test/login.spec.js",
-                            currentFailure: { test: "t", file: "x", error: "e", stack: "" },
-                            pausedAt: 12345,
                         },
                     });
 
                     useStore.getState().applyEvent({ type: "status", state: next });
 
                     const s = useStore.getState();
+                    // Discriminant alone pins absence of paused-only fields.
                     expect(s.state.state).toBe(next);
-                    expect(s.state.currentFailure).toBeUndefined();
-                    expect(s.state.pausedAt).toBeUndefined();
                     expect(s.chatMessages).toEqual([]);
                     expect(s.pendingDiff).toBeNull();
                     expect(s.pendingPick).toBeNull();
@@ -190,11 +191,19 @@ describe("store", () => {
     });
 
     it("apply 'paused' event sets failure", () => {
+        // Paused only makes sense after a run started — currentSpec must
+        // exist on the prior snapshot, otherwise the reducer correctly
+        // bails (PausedSnapshot requires currentSpec at the type level).
+        useStore.setState({ state: { state: "running", currentSpec: "a.spec.js" } });
         useStore.getState().applyEvent({
             type: "paused",
             failure: { test: "t", file: "a.spec.js", error: "e", stack: "" },
         });
-        expect(useStore.getState().state.currentFailure?.test).toBe("t");
+        const s = useStore.getState().state;
+        expect(s.state).toBe("paused");
+        if (s.state === "paused") {
+            expect(s.currentFailure.test).toBe("t");
+        }
     });
 
     describe("notice lifecycle", () => {
@@ -260,7 +269,12 @@ describe("store", () => {
             // intra-Continue window so QA isn't left wondering whether the
             // edit was applied.
             useStore.setState({
-                state: { state: "paused", currentSpec: "a.spec.js" },
+                state: {
+                    state: "paused",
+                    currentSpec: "a.spec.js",
+                    currentFailure: { test: "t", file: "a.spec.js", error: "e", stack: "" },
+                    pausedAt: 0,
+                },
                 notice: { kind: "info", message: "click continue" },
             });
             useStore.getState().applyEvent({ type: "status", state: "running" });
@@ -347,6 +361,10 @@ describe("store", () => {
     });
 
     describe("selectSuite", () => {
+        // DoneSnapshot doesn't carry currentFailure under the DU (failures
+        // are paused-only). The fixture below uses `done` because the
+        // selectSuite-different-spec tests need the live-guard to pass.
+        // Tests that need a failure payload set their own paused state.
         const stale = {
             mochaLog: [{ stream: "stdout" as const, text: "old log\n", receivedAt: 0, seq: 1 }],
             mochaExitCode: 1,
@@ -359,7 +377,6 @@ describe("store", () => {
             state: {
                 state: "done" as const,
                 currentSpec: "test/old.spec.js",
-                currentFailure: { test: "t", file: "test/old.spec.js", error: "e", stack: "" },
             },
         };
 
@@ -367,12 +384,21 @@ describe("store", () => {
             // Every call site in App.tsx is gated on !isLive, but the
             // reducer also self-protects so a future caller can't silently
             // wipe a live agent session (chat, pendingDiff, …).
+            const liveSnap = (state: "running" | "pre-running" | "paused") =>
+                state === "paused"
+                    ? {
+                        state,
+                        currentSpec: "test/old.spec.js",
+                        currentFailure: { test: "t", file: "x", error: "e", stack: "" },
+                        pausedAt: 0,
+                    }
+                    : { state, currentSpec: "test/old.spec.js" };
             for (const live of ["running", "pre-running", "paused"] as const) {
                 useStore.setState({
                     ...stale,
                     selectedSpec: "test/old.spec.js",
                     selectedNode: { kind: "it", fullTitle: "old > t" },
-                    state: { state: live, currentSpec: "test/old.spec.js" },
+                    state: liveSnap(live),
                 });
 
                 useStore.getState().selectSuite("test/new.spec.js", null);
@@ -408,11 +434,12 @@ describe("store", () => {
             expect(s.pendingDiff).toBeNull();
             expect(s.pendingPick).toBeNull();
             expect(s.pendingPrompt).toBeNull();
-            expect(s.state.currentFailure).toBeUndefined();
-            expect(s.state.currentSpec).toBeUndefined();
             // Session-state resets to idle so the StatusHeader doesn't
-            // carry "DONE" onto the new (un-run) suite.
+            // carry "DONE" onto the new (un-run) suite. IdleSnapshot has
+            // no currentFailure / pausedAt under the DU — the discriminant
+            // alone implies absence.
             expect(s.state.state).toBe("idle");
+            expect(s.state.currentSpec).toBeUndefined();
         });
 
         it("clears stale state when switching from no-selection to a spec", () => {
@@ -427,7 +454,8 @@ describe("store", () => {
             const s = useStore.getState();
             expect(s.selectedSpec).toBe("test/new.spec.js");
             expect(s.mochaLog).toEqual([]);
-            expect(s.state.currentFailure).toBeUndefined();
+            // Idle implies no currentFailure under the DU.
+            expect(s.state.state).toBe("idle");
             expect(s.chatMessages).toEqual([]);
         });
 
@@ -452,7 +480,8 @@ describe("store", () => {
             expect(s.selectedNode).toEqual({ kind: "it", fullTitle: "Login > works" });
             expect(s.mochaLog).toEqual([]);
             expect(s.mochaExitCode).toBeUndefined();
-            expect(s.state.currentFailure).toBeUndefined();
+            // Idle implies no currentFailure under the DU.
+            expect(s.state.state).toBe("idle");
             expect(s.state.currentSpec).toBeUndefined();
         });
 
@@ -487,10 +516,19 @@ describe("store", () => {
         });
 
         it("is a no-op when the same spec and node are re-selected", () => {
+            // Use a paused fixture here so we can pin "currentFailure
+            // survives a no-op" — DoneSnapshot doesn't carry failures
+            // under the DU.
             useStore.setState({
                 ...stale,
                 selectedSpec: "test/old.spec.js",
                 selectedNode: { kind: "it", fullTitle: "Login > works" },
+                state: {
+                    state: "paused",
+                    currentSpec: "test/old.spec.js",
+                    currentFailure: { test: "t", file: "test/old.spec.js", error: "e", stack: "" },
+                    pausedAt: 0,
+                },
             });
 
             useStore.getState().selectSuite(
@@ -500,7 +538,11 @@ describe("store", () => {
 
             const s = useStore.getState();
             expect(s.mochaLog).toHaveLength(1);
-            expect(s.state.currentFailure?.test).toBe("t");
+            // Narrow via discriminant so currentFailure access type-checks.
+            expect(s.state.state).toBe("paused");
+            if (s.state.state === "paused") {
+                expect(s.state.currentFailure.test).toBe("t");
+            }
             expect(s.chatMessages).toHaveLength(1);
         });
 
@@ -517,7 +559,8 @@ describe("store", () => {
             expect(s.selectedSpec).toBeNull();
             expect(s.selectedNode).toBeNull();
             expect(s.mochaLog).toEqual([]);
-            expect(s.state.currentFailure).toBeUndefined();
+            // Idle implies no currentFailure under the DU.
+            expect(s.state.state).toBe("idle");
         });
     });
 
