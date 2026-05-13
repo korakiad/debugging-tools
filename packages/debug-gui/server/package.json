@@ -12,6 +12,7 @@
     "setup-browser": "node scripts/install-browser.mjs"
   },
   "dependencies": {
+    "@debug-gui/protocol": "*",
     "@github/copilot-sdk": "^0.3.0",
     "@puppeteer/browsers": "^2.4.0",
     "express": "^4.19.2",

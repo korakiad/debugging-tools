@@ -10,6 +10,8 @@
   },
   "files": [
     "bin",
+    "protocol/dist",
+    "protocol/package.json",
     "server/dist",
     "server/runtime",
     "server/scripts",
@@ -29,9 +31,9 @@
     "zod": "^4.3.6"
   },
   "scripts": {
-    "build": "npm run build -w @debug-gui/server && npm run build -w @debug-gui/web",
+    "build": "npm run build -w @debug-gui/protocol && npm run build -w @debug-gui/server && npm run build -w @debug-gui/web",
     "dev": "npm run dev -w @debug-gui/server & npm run dev -w @debug-gui/web",
-    "test": "npm run test -w @debug-gui/server && npm run test -w @debug-gui/web",
+    "test": "npm run test -w @debug-gui/protocol && npm run test -w @debug-gui/server && npm run test -w @debug-gui/web",
     "setup-browser": "npm run setup-browser -w @debug-gui/server"
   },
   "debug-gui": {

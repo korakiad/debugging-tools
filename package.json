@@ -8,6 +8,7 @@
   },
   "workspaces": [
     "packages/*",
+    "packages/debug-gui/protocol",
     "packages/debug-gui/server",
     "packages/debug-gui/web"
   ],
