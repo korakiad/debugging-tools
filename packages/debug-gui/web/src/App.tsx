@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { STATE, isLive, isPaused, isTerminal } from "@debug-gui/protocol";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { useStore } from "./state/store";
 import { TestTree, type TestSelection } from "./components/TestTree";
@@ -69,8 +70,8 @@ export default function App() {
     // <body>, which breaks keyboard navigation.
     const dialogReturnFocus = useRef<HTMLElement | null>(null);
     const dialogWasOpen = useRef(false);
-    const isLive = state.state === "running" || state.state === "pre-running" || state.state === "paused";
-    const settingsDisabled = isLive || switching;
+    const live = isLive(state.state);
+    const settingsDisabled = live || switching;
 
     const sameNode = (a: TestSelection["node"], b: TestSelection["node"]) =>
         (!a && !b) ||
@@ -81,7 +82,7 @@ export default function App() {
         const sameAsCurrent =
             (next?.spec ?? null) === selectedSpec && sameNode(next?.node ?? null, selectedNode);
         if (sameAsCurrent) return;
-        if (!isLive) {
+        if (!live) {
             useStore.getState().selectSuite(next?.spec ?? null, next?.node ?? null);
             return;
         }
@@ -120,7 +121,7 @@ export default function App() {
     // button locked forever.
     useEffect(() => {
         if (!continuing) return;
-        if (state.state !== "paused") {
+        if (!isPaused(state.state)) {
             setContinuing(false);
             return;
         }
@@ -130,7 +131,7 @@ export default function App() {
 
     useEffect(() => {
         if (!switching) return;
-        if (state.state !== "idle" && state.state !== "done") return;
+        if (!isTerminal(state.state)) return;
         if (pendingSelection !== null) {
             useStore.getState().selectSuite(pendingSelection.spec, pendingSelection.node);
         } else {
@@ -140,7 +141,7 @@ export default function App() {
         // `paused` state, currentFailure, and the Continue button can't
         // linger if selectSuite read s.state.state before the WS status
         // event was applied to the store.
-        useStore.setState({ state: { state: "idle" } });
+        useStore.setState({ state: { state: STATE.IDLE } });
         setPendingSelection(null);
         setSwitching(false);
     }, [switching, state.state, pendingSelection]);
@@ -154,10 +155,10 @@ export default function App() {
     useEffect(() => {
         if (switching) return;
         if (pendingSelection === null) return;
-        if (isLive) return;
+        if (live) return;
         useStore.getState().selectSuite(pendingSelection.spec, pendingSelection.node);
         setPendingSelection(null);
-    }, [switching, pendingSelection, isLive]);
+    }, [switching, pendingSelection, live]);
 
     // Show the row whenever preRun is configured. First-run setup (no value)
     // is not exposed here; dev commits initial value OR user triggers the
@@ -182,12 +183,12 @@ export default function App() {
     //                 any time a runner is alive (incl. some transitional states).
     //
     // Pick what fits QA's workflow and edit the two booleans below.
-    const canStart = !!selectedSpec && (state.state === "idle" || state.state === "done") && !preRunDirty && !switching;
+    const canStart = !!selectedSpec && isTerminal(state.state) && !preRunDirty && !switching;
     // Stop is disabled while a Continue swap is in flight: the server is
     // mid-teardown + restart, and a racing cancel would conflict with the
     // in-progress fork. Becomes available again once state transitions to
     // running and `continuing` clears.
-    const canStop = (state.state === "running" || state.state === "paused") && !switching && !continuing;
+    const canStop = (state.state === STATE.RUNNING || state.state === STATE.PAUSED) && !switching && !continuing;
 
     return (
         <div className="flex h-screen">
@@ -220,8 +221,8 @@ export default function App() {
                     >
                         Stop
                     </EfButton>
-                    {(state.state === "running" || state.state === "pre-running") && <Spinner />}
-                    {state.state === "paused" && (
+                    {(state.state === STATE.RUNNING || state.state === STATE.PRE_RUNNING) && <Spinner />}
+                    {isPaused(state.state) && (
                         <EfButton
                             cta
                             disabled={switching || continuing || undefined}
@@ -234,7 +235,7 @@ export default function App() {
                             {continuing ? "Resuming…" : "Continue"}
                         </EfButton>
                     )}
-                    {state.state === "paused" && continuing && <Spinner />}
+                    {isPaused(state.state) && continuing && <Spinner />}
                     {showPreRun && (
                         <PreRunRow
                             saved={savedPreRun}
@@ -255,7 +256,7 @@ export default function App() {
                             onCheckedChanged={(e) =>
                                 setBailOnFailure((e as CustomEvent<{ value: boolean }>).detail.value)
                             }
-                            disabled={isLive || switching || undefined}
+                            disabled={live || switching || undefined}
                         />
                         Skip rest on failure
                     </label>

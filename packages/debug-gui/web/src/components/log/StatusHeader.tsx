@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { SessionState } from "../../state/store";
+import { STATE, type SessionState } from "@debug-gui/protocol";
 import { EfAppstateBar } from "../../ui";
 import { formatTime } from "./deriveLog";
 
@@ -11,11 +11,11 @@ interface StatusHeaderProps {
 }
 
 const STATE_LABEL: Record<SessionState, string> = {
-    idle: "IDLE",
-    "pre-running": "PRE-RUN",
-    running: "RUNNING",
-    paused: "PAUSED",
-    done: "DONE",
+    [STATE.IDLE]: "IDLE",
+    [STATE.PRE_RUNNING]: "PRE-RUN",
+    [STATE.RUNNING]: "RUNNING",
+    [STATE.PAUSED]: "PAUSED",
+    [STATE.DONE]: "DONE",
 };
 
 // 250ms tick is enough for "00:42.318"-style display. The clock only runs
@@ -26,7 +26,7 @@ const STATE_LABEL: Record<SessionState, string> = {
 // snaps to the transition instant rather than the previous tick.
 function useElapsed(state: SessionState, startedAt: number | null): number {
     const [now, setNow] = useState<number>(() => Date.now());
-    const ticking = (state === "running" || state === "pre-running") && startedAt != null;
+    const ticking = (state === STATE.RUNNING || state === STATE.PRE_RUNNING) && startedAt != null;
     useEffect(() => {
         setNow(Date.now());
     }, [state]);

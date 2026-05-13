@@ -1,25 +1,27 @@
 import { create } from "zustand";
+import {
+    STATE,
+    isLive,
+    type SessionState,
+    type SessionSnapshot,
+    type FailureInfo,
+    type ServerEvent,
+    type LspWarning,
+    type SuiteNode,
+    type SuiteTree,
+} from "@debug-gui/protocol";
 
-export type SessionState = "idle" | "pre-running" | "running" | "paused" | "done";
+export type { SessionState, SessionSnapshot, FailureInfo, ServerEvent, LspWarning, SuiteNode, SuiteTree };
+
+// Back-compat aliases used elsewhere in the web bundle. Phase 0c keeps
+// these so component imports don't churn; remove in a later phase if
+// nothing depends on the short names.
+export type Failure = FailureInfo;
+export type Snapshot = SessionSnapshot;
 
 export interface Suite {
     relPath: string;
     absPath: string;
-}
-export interface Failure {
-    test: string;
-    file: string;
-    error: string;
-    stack: string;
-}
-export interface Snapshot {
-    state: SessionState;
-    currentSpec?: string;
-    currentFailure?: Failure;
-    // Wall-clock ms when the runner reported a `paused` event. Captured here
-    // (not in deriveLog) so the synthetic FAIL row's TIME column is anchored
-    // at the moment of pause, not the moment deriveLog last re-ran.
-    pausedAt?: number;
 }
 export interface Diff {
     reqId: string;
@@ -40,12 +42,6 @@ export interface Prompt {
     options: { id: string; label: string; detail?: string }[];
     allowFreeText: boolean;
 }
-export interface LspWarning {
-    kind: "missing" | "broken" | "config-invalid" | "fs-error";
-    message?: string;
-    installCmd?: string;
-    stderrTail?: string;
-}
 
 // Side-band INFO/WARN message surfaced in LogPanel. Currently driven by the
 // server when an `edit_file` is approved during pause: a reminder to click
@@ -55,11 +51,6 @@ export interface LspWarning {
 export interface Notice {
     kind: "info" | "warning" | "error";
     message: string;
-}
-
-export interface ServerEvent {
-    type: string;
-    [k: string]: any;
 }
 
 export interface MochaLogLine {
@@ -84,30 +75,10 @@ export interface SelectedNode {
     fullTitle: string;
 }
 
-// Mirror of server/src/parseSuite.ts shapes — duplicated so the web bundle
-// has no compile-time dep on the server's emitted types.
-export interface SuiteNode {
-    kind: "describe" | "it";
-    title: string;
-    fullTitle: string;
-    line: number;
-    endLine: number;
-    children: SuiteNode[];
-    pending?: boolean;
-    only?: boolean;
-}
-export interface SuiteTree {
-    file: string;
-    relPath: string;
-    children: SuiteNode[];
-    source?: string;
-    error?: string;
-}
-
 interface Store {
     suites: Suite[];
     config: Record<string, unknown>;
-    state: Snapshot;
+    state: SessionSnapshot;
     selectedSpec: string | null;
     selectedNode: SelectedNode | null;
     // Cached parsed trees keyed by spec relPath. Populated by TestTree after
@@ -131,7 +102,7 @@ interface Store {
     dismissLspWarning: () => void;
     notice: Notice | null;
     dismissNotice: () => void;
-    applyEvent: (e: ServerEvent) => void;
+    applyEvent: (e: ServerEvent | { type: string;[k: string]: unknown }) => void;
     // Switch the active spec/node selection.
     //
     //   * Same spec, same node → no-op.
@@ -165,7 +136,7 @@ interface Store {
 export const useStore = create<Store>((set) => ({
     suites: [],
     config: {},
-    state: { state: "idle" },
+    state: { state: STATE.IDLE },
     selectedSpec: null,
     selectedNode: null,
     suiteTrees: {},
@@ -182,8 +153,9 @@ export const useStore = create<Store>((set) => ({
     dismissLspWarning: () => set({ lspWarning: null }),
     notice: null,
     dismissNotice: () => set({ notice: null }),
-    applyEvent: (e) =>
+    applyEvent: (raw) =>
         set((s) => {
+            const e = raw as { type: string;[k: string]: any };
             if (e.type === "init") {
                 return {
                     suites: e.suites, config: e.config, state: e.state,
@@ -214,12 +186,8 @@ export const useStore = create<Store>((set) => ({
                 };
             }
             if (e.type === "status") {
-                if (e.state === "running" || e.state === "pre-running") {
-                    const wasLive =
-                        s.state.state === "running" ||
-                        s.state.state === "pre-running" ||
-                        s.state.state === "paused";
-                    if (wasLive) {
+                if (e.state === STATE.RUNNING || e.state === STATE.PRE_RUNNING) {
+                    if (isLive(s.state.state)) {
                         // Resume from paused, or pre-running→running on
                         // the same run. Don't wipe agent-session state —
                         // pendingDiff/Pick/Prompt and chatMessages may
@@ -261,7 +229,7 @@ export const useStore = create<Store>((set) => ({
                 return { state: { state: e.state, currentSpec: s.state.currentSpec } };
             }
             if (e.type === "paused") {
-                return { state: { ...s.state, state: "paused", currentFailure: e.failure, pausedAt: Date.now() } };
+                return { state: { ...s.state, state: STATE.PAUSED, currentFailure: e.failure, pausedAt: Date.now() } };
             }
             if (e.type === "diff") {
                 return { pendingDiff: { reqId: e.reqId, file: e.file, oldCode: e.oldCode, newCode: e.newCode, receivedAt: Date.now() } };
@@ -350,11 +318,7 @@ export const useStore = create<Store>((set) => ({
             // silently wipe a live agent session — the destructive scope
             // below includes chatMessages, pendingDiff, pendingPick,
             // pendingPrompt, which the agent code may still be awaiting.
-            const live =
-                s.state.state === "running" ||
-                s.state.state === "pre-running" ||
-                s.state.state === "paused";
-            if (live) return {};
+            if (isLive(s.state.state)) return {};
             const sameSpec = spec === s.selectedSpec;
             const sameNode =
                 node?.kind === s.selectedNode?.kind &&
@@ -385,7 +349,7 @@ export const useStore = create<Store>((set) => ({
                 // carry "DONE" onto a suite that hasn't been run yet. The
                 // live-guard above already short-circuits running/paused,
                 // so the only states that reach here are idle/done.
-                state: { state: "idle" },
+                state: { state: STATE.IDLE },
             };
         }),
 }));
