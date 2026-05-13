@@ -178,7 +178,13 @@ export async function main(
     async function setupAgentForRun(): Promise<void> {
         const agent = new AgentSession({
             copilot,
-            config: { mode: config.agent.mode, idleTimeoutMs: config.agent.idleTimeoutMs },
+            // Live thunk: re-read on every tool callback + pause send so
+            // mid-pause settings_update changes (mode toggle, idleTimeout
+            // bump) take effect on the next call.
+            config: () => ({
+                mode: config.agent.mode,
+                idleTimeoutMs: config.agent.idleTimeoutMs,
+            }),
             cdpPort: () => chrome.getHandle()?.port ?? 0,
             broadcast: (event) => hub.broadcast(event),
             pickScriptPath,

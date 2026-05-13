@@ -18,9 +18,11 @@ type AgentState = "idle" | "creating" | "ready" | "sending" | "torn-down";
 export interface AgentSessionDeps {
     /** Long-lived CLI client. The session is created per-AgentSession. */
     readonly copilot: CopilotClient;
-    /** Agent config snapshot — re-read at construction so a live
-     *  settings_update doesn't change the prompt mid-session. */
-    readonly config: { mode: "auto" | "manual"; idleTimeoutMs: number };
+    /** Live config accessor — re-read at each tool callback and pause
+     *  send so a settings_update during a paused turn (e.g. QA toggles
+     *  Manual/Auto) takes effect immediately. Returns the same shape
+     *  every call; the class reads `.mode` / `.idleTimeoutMs` lazily. */
+    readonly config: () => { mode: "auto" | "manual"; idleTimeoutMs: number };
     /** Returns the live CDP port for the test browser. Called at
      *  paused-prompt build time, so a Continue swap that relaunches
      *  Chrome under a new port doesn't bake the old one into the prompt. */
@@ -98,6 +100,21 @@ export class AgentSession {
             this.state = "torn-down";
             throw e;
         }
+        // Setup/teardown race: createSession is async and Stop can fire
+        // while we're awaiting it. tearDown flips state → "torn-down"
+        // before we observe the resolution; if we proceed to assign sdk +
+        // install listeners + flip state to "ready", the SDK session
+        // is leaked (no longer reachable from the index.ts ref). Detect
+        // and immediately disconnect the orphan.
+        // Cast through AgentState — TS only sees straight-line setup() code
+        // and assumes state stayed "creating". A concurrent tearDown() from
+        // a separate async stack can have flipped it to "torn-down" while
+        // we awaited createSession.
+        if ((this.state as AgentState) === "torn-down") {
+            try { await sdk.abort(); } catch { /* ignore */ }
+            try { await sdk.disconnect(); } catch { /* ignore */ }
+            return;
+        }
         this.sdk = sdk;
         this.installSdkListeners(sdk);
         this.state = "ready";
@@ -126,11 +143,12 @@ export class AgentSession {
                 if (ac.signal.aborted) reject(ac.signal.reason as Error);
                 else ac.signal.addEventListener("abort", () => reject(ac.signal.reason as Error), { once: true });
             });
+            const cfg = this.deps.config();
             await Promise.race([
                 abortPromise,
                 this.sdk.sendAndWait(
                     { prompt: this.buildPausePrompt(failure) },
-                    this.deps.config.idleTimeoutMs,
+                    cfg.idleTimeoutMs,
                 ),
             ]);
         } catch (e) {
@@ -248,9 +266,10 @@ export class AgentSession {
                     // Manual mode always allows free text so QA can surface
                     // context the agent's CDP inspection can't see; force it
                     // here so a model that disables it in args can't override
-                    // the mode.
+                    // the mode. Read mode live so a settings_update during a
+                    // paused turn takes effect on the next tool call.
                     const effectiveAllowFreeText =
-                        this.deps.config.mode === "manual" ? true : allowFreeText;
+                        this.deps.config().mode === "manual" ? true : allowFreeText;
                     const reqId = newReqId();
                     return new Promise((resolve, reject) => {
                         this.askResolvers.set(reqId, { resolve, reject });
@@ -387,7 +406,7 @@ export class AgentSession {
     private buildPausePrompt(f: FailureInfo): string {
         const port = this.deps.cdpPort() || this.deps.fallbackCdpPort;
         const manualPreamble =
-            this.deps.config.mode === "manual"
+            this.deps.config().mode === "manual"
                 ? "You are in MANUAL mode. Always call ask_user before edit_file — the walkthrough SKILL describes the conversation pattern.\n\n"
                 : "";
         return (
