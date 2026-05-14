@@ -67,7 +67,7 @@ export class GuiSession {
      * no side-effects.
      */
     async start(opts: WorkerRunOpts, doPreRun: boolean): Promise<void> {
-        if (this.state !== "idle" && this.state !== "stopping") return;
+        if (this.state !== "idle") return;
         // Tear any straggling agent first — a fresh Run gets a clean
         // agent context. The previous run's resolvers (if any) are
         // drained inside tearDown.
@@ -131,8 +131,25 @@ export class GuiSession {
             });
             await this.run.start();
             await this.spawnAgent();
-        } finally {
             this.state = "running";
+        } catch (e) {
+            // Best-effort cleanup: an old agent/run survives if tearDown
+            // threw before line 117/120, and a fresh worker survives if
+            // run.start() threw after line 126. Swallow nested failures
+            // so the user's recovery path (state→idle, error broadcast)
+            // always completes.
+            const orphanAgent = this.agent;
+            const orphanRun = this.run;
+            this.agent = null;
+            this.run = null;
+            try { await orphanAgent?.tearDown({ reason: "continue failed", suppressChat: true }); } catch {}
+            try { await orphanRun?.stopGracefully(); } catch {}
+            this.deps.session.reset();
+            this.state = "idle";
+            this.deps.hub.broadcast({
+                type: "error",
+                message: `Continue failed: ${e instanceof Error ? e.message : String(e)}`,
+            });
         }
     }
 
