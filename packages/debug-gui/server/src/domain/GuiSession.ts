@@ -278,6 +278,16 @@ export class GuiSession {
             if (!isPaused(this.deps.session.getState().state)) {
                 this.deps.session.markDone();
             }
+            // Worker is gone — release our handle and return to idle so
+            // the next Run is accepted. Without this, the wire FSM flips
+            // to DONE (UI enables Start) but GuiSession.state stays at
+            // "running", and start()'s gate silently drops the click.
+            // stop() owns the same transition for the user-initiated
+            // teardown path, so skip while we're inside it.
+            if (this.state !== "stopping") {
+                this.run = null;
+                this.state = "idle";
+            }
         });
     }
 
