@@ -122,9 +122,8 @@ export function parseServerEvent(m: unknown): ServerEvent | null {
     if (!isObj(m)) return null;
     switch (m.type) {
         case "init":
-            // suites/config are opaque to the web reducer; state must be
-            // a recognisable shape.
             if (!isObj(m.state) || !isSessionState(m.state.state)) return null;
+            if (!Array.isArray(m.suites)) return null;
             return m as unknown as ServerEvent;
         case "status":
             if (!isSessionState(m.state)) return null;
@@ -179,7 +178,7 @@ export function parseServerEvent(m: unknown): ServerEvent | null {
             // config is opaque to the reducer.
             return m as unknown as ServerEvent;
         case "suites_updated":
-            // suites is opaque to the reducer.
+            if (!Array.isArray(m.suites)) return null;
             return m as unknown as ServerEvent;
         case "lsp/warning":
             if (!isObj(m.warning)) return null;
