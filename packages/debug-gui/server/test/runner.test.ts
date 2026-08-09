@@ -20,6 +20,7 @@ describe("buildMochaCommand", () => {
         expect(cmd.args).toEqual([
             "mocha", "test/login.spec.js",
             "--require", BUNDLED_HOOK_PATH,
+            "--timeout", "0",
         ]);
     });
 
@@ -34,6 +35,7 @@ describe("buildMochaCommand", () => {
         expect(cmd.args).toEqual([
             "./bin/mocha", "test/login.spec.js",
             "--require", BUNDLED_HOOK_PATH,
+            "--timeout", "0",
         ]);
     });
 
@@ -62,6 +64,7 @@ describe("buildMochaCommand", () => {
             "mocha", "test/login.spec.js",
             "--require", BUNDLED_HOOK_PATH,
             "--grep", "^SauceDemo Login should enter username$",
+            "--timeout", "0",
         ]);
     });
 
@@ -83,7 +86,7 @@ describe("buildMochaCommand", () => {
         });
         const requires = cmd.args.filter((a) => a === "--require");
         expect(requires.length).toBe(1);
-        expect(cmd.args[cmd.args.length - 1]).toBe(BUNDLED_HOOK_PATH);
+        expect(cmd.args).toContain(BUNDLED_HOOK_PATH);
     });
 });
 

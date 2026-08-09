@@ -12,6 +12,7 @@ export interface InitPayload {
     suites: Suite[];
     config: DebugGuiConfig;
     state: SessionSnapshot;
+    lsp?: string;
 }
 
 export interface AppDeps {

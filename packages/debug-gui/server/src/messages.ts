@@ -1,5 +1,12 @@
 import type { FailureInfo, SessionSnapshot } from "./session.js";
 
+export interface LspWarning {
+    kind: "missing" | "broken" | "config-invalid" | "fs-error";
+    message?: string;
+    installCmd?: string;
+    stderrTail?: string;
+}
+
 export type ServerEvent =
     | { type: "init"; suites: unknown[]; config: unknown; state: SessionSnapshot }
     | { type: "status"; state: SessionSnapshot["state"] }
@@ -12,7 +19,8 @@ export type ServerEvent =
     | { type: "chat_delta"; text: string }
     | { type: "chat_final"; content: string }
     | { type: "diff"; reqId: string; file: string; oldCode: string; newCode: string }
-    | { type: "pick"; reqId: string; imageUrl: string; hint: string }
+    | { type: "pick"; reqId: string; hint: string }
+    | { type: "pick_done"; reqId: string }
     | {
         type: "prompt";
         reqId: string;
@@ -22,6 +30,12 @@ export type ServerEvent =
     }
     | { type: "config_updated"; config: unknown }
     | { type: "suites_updated"; suites: unknown[] }
+    | { type: "lsp/warning"; warning: LspWarning }
+    // Side-band INFO/WARN/ERROR surfaced in the UI's LogPanel notice slot.
+    // Currently emitted when an `edit_file` is approved during pause: the
+    // fix is now on disk but Mocha's per-process require cache means an
+    // in-flight retry will hit the same error, so we tell QA to click Run.
+    | { type: "notice"; kind: "info" | "warning" | "error"; message: string }
     | { type: "error"; message: string };
 
 export type ClientCommand =
@@ -39,7 +53,7 @@ export type ClientCommand =
     | { type: "chat_send"; prompt: string }
     | { type: "agent_abort" }
     | { type: "diff_decision"; reqId: string; action: "approved" | "rejected"; reason?: string }
-    | { type: "pick_result"; reqId: string; selector: string; attrs: Record<string, unknown> }
+    | { type: "pick_cancel"; reqId: string }
     | {
         type: "prompt_response";
         reqId: string;

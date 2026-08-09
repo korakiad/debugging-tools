@@ -1,0 +1,5 @@
+# Normalize line endings to LF in the repo for all text files. Without
+# this, Windows checkouts with core.autocrlf=true round-trip files as
+# CRLF in the working tree, producing phantom "modified" status that
+# pollutes diffs.
+* text=auto eol=lf

@@ -7,16 +7,24 @@
 //   loginButton:  [data-test="login-button"]
 
 class LoginPage {
-    get url() { return 'https://www.saucedemo.com/'; }
+  get url() {
+    return "https://www.saucedemo.com/";
+  }
 
-    // WRONG: real id is "user-name" (with hyphen)
-    get usernameField() { return '#username'; }
+  // Fixed: username field selector
+  get usernameField() {
+    return "#user-name";
+  }
 
-    // WRONG: no such class — real element is #password
-    get passwordField() { return 'input.password-field'; }
+  // Fixed: password field selector
+  get passwordField() {
+    return "#password";
+  }
 
-    // WRONG: data-test value is "login-button", not "submit-btn"
-    get loginButton() { return '[data-test="submit-btn"]'; }
+  // WRONG: data-test value is "login-button", not "submit-btn"
+  get loginButton() {
+    return '[data-test="submit-btn"]';
+  }
 }
 
 module.exports = { LoginPage };

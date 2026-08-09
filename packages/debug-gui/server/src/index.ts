@@ -2,6 +2,7 @@ import http from "http";
 import { WebSocketServer } from "ws";
 import path from "path";
 import express from "express";
+import { spawn } from "child_process";
 import { fileURLToPath } from "url";
 import { existsSync } from "fs";
 import { loadConfig, saveConfig } from "./config.js";
@@ -16,8 +17,10 @@ import { makeEditFileTool } from "./tools/editFile.js";
 import { makePickElementTool } from "./tools/pickElement.js";
 import { makeAskUserTool } from "./tools/askUser.js";
 import { drainResolvers, type PendingResolver } from "./resolvers.js";
-import { captureScreenshot, SCREENSHOT_DIR } from "./screenshot.js";
+import { SCREENSHOT_DIR } from "./screenshot.js";
 import { launchAppMode } from "./launcher.js";
+import { ensureLspConfig } from "./lspInit.js";
+import type { LspWarning } from "./messages.js";
 import { CopilotClient } from "@github/copilot-sdk";
 
 export const VERSION = "0.0.1";
@@ -52,10 +55,31 @@ export async function main(
     const editResolvers = new Map<string, PendingResolver<{ approved: boolean; reason?: string }>>();
     const pickResolvers = new Map<string, PendingResolver<Record<string, unknown>>>();
     const askResolvers = new Map<string, PendingResolver<{ choice: string | null; freeText: string | null }>>();
+    // PIDs of in-flight playwright-cli pick subprocesses, keyed by reqId.
+    // Lets pick_cancel kill the right child without leaking handles after
+    // natural completion.
+    const pickPids = new Map<string, number>();
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const pickScriptPath = path.resolve(
+        here,
+        "../../.claude/skills/identify-element/references/pick-element.js",
+    );
+
+    const lspResult = await ensureLspConfig(cwd);
+    const lspWarning: LspWarning | null =
+        lspResult.status === "ok"
+            ? null
+            : {
+                kind: lspResult.status,
+                message: lspResult.message,
+                installCmd: lspResult.installCmd,
+                stderrTail: lspResult.stderrTail,
+            };
+    console.log(`[lsp] ${lspResult.status}${lspResult.message ? `: ${lspResult.message}` : ""}`);
 
     const app = createApp({
         cwd,
-        loadInit: () => ({ suites, config, state: session.getState() }),
+        loadInit: () => ({ suites, config, state: session.getState(), lsp: lspResult.status }),
         hooker,
     });
 
@@ -70,7 +94,6 @@ export async function main(
 
     // Serve built web SPA from server/dist/../../web/dist in prod.
     // (In dev, vite serves :5555 and proxies API to backend.)
-    const here = path.dirname(fileURLToPath(import.meta.url));
     const webDist = path.resolve(here, "../../web/dist");
     if (existsSync(webDist)) {
         app.use(express.static(webDist));
@@ -83,6 +106,9 @@ export async function main(
     wss.on("connection", (ws) => {
         hub.add(ws);
         ws.send(JSON.stringify({ type: "init", suites, config, state: session.getState() }));
+        if (lspWarning) {
+            ws.send(JSON.stringify({ type: "lsp/warning", warning: lspWarning }));
+        }
         ws.on("message", (raw) => hub.handleIncoming(raw.toString()));
         ws.on("close", () => hub.remove(ws));
     });
@@ -94,7 +120,10 @@ export async function main(
         }
     });
 
-    const copilot = new CopilotClient({ sessionIdleTimeoutSeconds: 1800 });
+    const copilot = new CopilotClient({
+        sessionIdleTimeoutSeconds: 1800,
+        cliArgs: ["--experimental"],
+    });
     await copilot.start();
 
     // Tracked across messages so agent_abort can reach the live session and
@@ -115,27 +144,97 @@ export async function main(
             },
         }),
         makePickElementTool({
-            onPick: async (hint) => {
+            onPick: (hint) => {
+                // Spawn playwright-cli's pick-element script against the test
+                // runner's CDP port. The script injects hover-highlight + click
+                // handlers into the *test* browser (not debug-gui's own UI) and
+                // blocks until QA clicks. Stdout is JSON with DOM attributes +
+                // frame chain — exactly what the agent needs to build a selector.
+                //
+                // playwright-cli operates on named sessions. We attach a fresh
+                // session per pick (cheap; daemon spin-up is ~1s) and detach
+                // after run-code returns, so concurrent picks don't collide
+                // and we don't leak sessions across runs.
                 const reqId = Math.random().toString(36).slice(2);
-                let imageUrl = "";
-                try {
-                    const shot = await captureScreenshot(config.cdp.port);
-                    imageUrl = `/api/screenshot/${encodeURIComponent(shot.id)}`;
-                } catch {
-                    // screenshot failure is non-fatal — the picker will still render a placeholder
-                }
-                return new Promise((resolve, reject) => {
+                const sessionName = `dgui_pick_${reqId}`;
+                hub.broadcast({ type: "pick", reqId, hint });
+                return new Promise<Record<string, unknown>>((resolve, reject) => {
                     pickResolvers.set(reqId, { resolve, reject });
-                    hub.broadcast({ type: "pick", reqId, imageUrl, hint });
+                    const cmd = [
+                        `npx playwright-cli attach --cdp="http://localhost:${config.cdp.port}" --session=${sessionName}`,
+                        `npx playwright-cli -s=${sessionName} --raw run-code --filename="${pickScriptPath}"`,
+                    ].join(" && ");
+                    const child = spawn(cmd, { shell: true, env: process.env });
+                    if (child.pid) pickPids.set(reqId, child.pid);
+                    let stdout = "";
+                    let stderr = "";
+                    child.stdout?.on("data", (b) => { stdout += b.toString(); });
+                    child.stderr?.on("data", (b) => { stderr += b.toString(); });
+                    const cleanup = () => {
+                        // best-effort detach so the session daemon doesn't
+                        // outlive this pick. Errors here are silent — the
+                        // session may already be gone.
+                        spawn(`npx playwright-cli -s=${sessionName} detach`, {
+                            shell: true,
+                            env: process.env,
+                            stdio: "ignore",
+                        });
+                    };
+                    child.on("exit", (code) => {
+                        pickPids.delete(reqId);
+                        const r = pickResolvers.get(reqId);
+                        if (!r) { cleanup(); return; }
+                        pickResolvers.delete(reqId);
+                        hub.broadcast({ type: "pick_done", reqId });
+                        if (code !== 0) {
+                            cleanup();
+                            r.reject(new Error(`pick-element exited ${code}: ${(stderr || stdout).trim().slice(-500)}`));
+                            return;
+                        }
+                        // attach prints its own banner before run-code's JSON.
+                        // pick-element.js outputs a single JSON object on the
+                        // last line, so grab the last {...} block.
+                        const jsonMatch = stdout.match(/\{[\s\S]*\}\s*$/);
+                        cleanup();
+                        if (!jsonMatch) {
+                            r.reject(new Error(`pick-element no JSON in stdout: ${stdout.trim().slice(-500)}`));
+                            return;
+                        }
+                        try {
+                            r.resolve(JSON.parse(jsonMatch[0]));
+                        } catch (e: any) {
+                            r.reject(new Error(`pick-element JSON parse: ${e?.message ?? e}`));
+                        }
+                    });
+                    child.on("error", (e) => {
+                        pickPids.delete(reqId);
+                        cleanup();
+                        const r = pickResolvers.get(reqId);
+                        if (!r) return;
+                        pickResolvers.delete(reqId);
+                        hub.broadcast({ type: "pick_done", reqId });
+                        r.reject(e);
+                    });
                 });
             },
         }),
         makeAskUserTool({
             onAsk: (summary, options, allowFreeText) => {
+                // SKILL.md item 2 mandates allowFreeText in manual mode so QA can
+                // surface context the agent's CDP inspection can't see. Force it
+                // here so a model that ignores the SKILL rule can't disable it.
+                const effectiveAllowFreeText =
+                    config.agent.mode === "manual" ? true : allowFreeText;
                 const reqId = Math.random().toString(36).slice(2);
                 return new Promise((resolve, reject) => {
                     askResolvers.set(reqId, { resolve, reject });
-                    hub.broadcast({ type: "prompt", reqId, summary, options, allowFreeText });
+                    hub.broadcast({
+                        type: "prompt",
+                        reqId,
+                        summary,
+                        options,
+                        allowFreeText: effectiveAllowFreeText,
+                    });
                 });
             },
         }),
@@ -236,10 +335,17 @@ export async function main(
                         const f = snap.currentFailure;
                         const manualPreamble =
                             config.agent.mode === "manual"
-                                ? `You are in MANUAL mode. After each CDP/playwright-cli inspection, ` +
-                                  `call ask_user with a 1-line summary and 2-3 suggested next steps as ` +
-                                  `options. Option ids that apply a fix MUST start with 'apply_'. ` +
-                                  `Do NOT call edit_file until QA chooses an apply_* option.\n\n`
+                                ? `You are in MANUAL mode. Follow the walkthrough SKILL "Manual mode ` +
+                                  `contract" exactly: your FIRST action for any element-related failure ` +
+                                  `is to call ask_user with options that include a pick_* id (e.g. ` +
+                                  `pick_login_button) — do NOT call pick_element or playwright-cli ` +
+                                  `directly until QA chooses an option. The summary must be two lines ` +
+                                  `(Hypothesis "ผมคิดว่า [root cause] เพราะ [evidence]" + Invitation ` +
+                                  `asking for context you can't see). allowFreeText: true is mandatory. ` +
+                                  `When QA picks a pick_* option, then call pick_element. When QA ` +
+                                  `chooses apply_*, call edit_file. If QA chooses apply_* AND adds ` +
+                                  `new-context freeText, do NOT apply — acknowledge, re-investigate, ` +
+                                  `and re-ask.\n\n`
                                 : "";
                         await agentSession!.sendAndWait(
                             {
@@ -252,10 +358,10 @@ export async function main(
                                     `  file:  ${f.file}\n` +
                                     `  error: ${f.error}\n` +
                                     `  stack:\n${f.stack}\n\n` +
-                                    `Follow the walkthrough SKILL: inspect the live app via playwright-cli ` +
-                                    `(CDP port ${config.cdp.port}) to find the correct selector/fix, ` +
-                                    `then call edit_file with the proposed change. ` +
-                                    `The QA operator will click Continue in the GUI to resume the test runner.`,
+                                    `Follow the walkthrough SKILL. For non-element investigation ` +
+                                    `(timing, navigation, console errors) use playwright-cli at CDP ` +
+                                    `port ${config.cdp.port}. The QA operator will click Continue ` +
+                                    `in the GUI to resume the test runner once a fix is applied.`,
                             },
                             config.agent.idleTimeoutMs,
                         );
@@ -285,12 +391,35 @@ export async function main(
                 resolver.resolve({ approved: cmd.action === "approved", reason: cmd.reason });
                 editResolvers.delete(cmd.reqId);
             }
+            // After QA approves a fix during pause, tell them not to click
+            // Continue: Mocha's per-process require cache holds the spec /
+            // page-object modules from suite-load, so the retry's in-flight
+            // it() body will still see the OLD selector (the agent's edit
+            // changed disk, not memory). Continue → same error; Run → fresh
+            // process → fix takes effect. See login.spec.js + login.page.js
+            // for the canonical case.
+            if (cmd.action === "approved") {
+                hub.broadcast({
+                    type: "notice",
+                    kind: "info",
+                    message:
+                        "Fix saved to disk. Mocha can't reload modules mid-run, " +
+                        "so clicking Continue will hit the same error. " +
+                        "Click Run to re-execute the suite with the fix applied.",
+                });
+            }
         }
-        if (cmd.type === "pick_result") {
+        if (cmd.type === "pick_cancel") {
+            const pid = pickPids.get(cmd.reqId);
+            if (pid) {
+                try { await killTree(pid); } catch { /* already gone */ }
+                pickPids.delete(cmd.reqId);
+            }
             const resolver = pickResolvers.get(cmd.reqId);
             if (resolver) {
-                resolver.resolve(cmd.attrs);
                 pickResolvers.delete(cmd.reqId);
+                hub.broadcast({ type: "pick_done", reqId: cmd.reqId });
+                resolver.reject(new Error("pick cancelled by QA"));
             }
         }
         if (cmd.type === "prompt_response") {
@@ -330,6 +459,16 @@ export async function main(
             }
             await runner.kill();
             orch.stop();
+            // Reset hooker BEFORE session so an in-flight pollOnce can't
+            // re-mark the session as paused right after we reset it.
+            // pollOnce reads hooker.getStatus() then session.getState();
+            // if it observed status=paused before we ran, then sees
+            // session.state=idle after reset, the existing logic would
+            // call hooker.getPaused() + session.markPaused() — flipping
+            // the snapshot back to paused. Resetting hooker first makes
+            // hooker.getPaused() throw, which the orchestrator's
+            // setInterval catch swallows.
+            await hooker.reset();
             session.reset();
             drainResolvers(editResolvers);
             drainResolvers(pickResolvers);

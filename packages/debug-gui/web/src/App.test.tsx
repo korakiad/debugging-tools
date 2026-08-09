@@ -115,7 +115,7 @@ describe("App suite-switch confirmation", () => {
         expect(useStore.getState().selectedSpec).toBe("test/a.spec.js");
     });
 
-    it("running: SelectionPanel clear button while node is selected opens confirm dialog", () => {
+    it("running: clicking selected spec row while a sub-node is selected opens confirm dialog (same-spec node clear)", () => {
         useStore.setState({
             state: { state: "running" },
             selectedSpec: "test/a.spec.js",
@@ -123,7 +123,10 @@ describe("App suite-switch confirmation", () => {
         });
         render(<App />);
 
-        fireEvent.click(screen.getByRole("button", { name: /clear selection/i }));
+        // Clicking the currently-selected spec row when a sub-node is
+        // selected drives requestSelectionChange({spec, node:null}) — a
+        // node CHANGE within the same spec, so isLive must open the dialog.
+        fireEvent.click(screen.getByRole("button", { name: "test/a.spec.js" }));
 
         expect(screen.getByRole("dialog", { name: /switch suite/i })).toBeInTheDocument();
         expect(useStore.getState().selectedNode).toEqual({ kind: "it", fullTitle: "Login should pass" });
@@ -145,18 +148,144 @@ describe("App suite-switch confirmation", () => {
         expect(screen.queryByRole("dialog", { name: /switch suite/i })).not.toBeInTheDocument();
     });
 
+    it("paused → Switch to a different node within the same spec → idle: failure clears and selection swaps", () => {
+        // Reproduces a user-reported scenario: state is paused on test A;
+        // user changes selection inside the same .spec.js (here we click
+        // the currently-selected spec row while a sub-node `it` is
+        // selected — drives `requestSelectionChange({spec, node:null})`,
+        // the same code path that an in-tree `it → it` click goes
+        // through). The failure and paused status must clear once the
+        // cancel lands.
+        useStore.setState({
+            suites: [
+                { relPath: "test/a.spec.js", absPath: "/x/a.spec.js" },
+            ],
+            selectedSpec: "test/a.spec.js",
+            selectedNode: { kind: "it", fullTitle: "Login Form should click the submit button" },
+            state: {
+                state: "paused",
+                currentFailure: {
+                    test: "should click the submit button",
+                    file: "test/a.spec.js",
+                    error: "Element not found",
+                    stack: "",
+                },
+            },
+            mochaLog: [{ stream: "stdout", text: "old line", receivedAt: 0, seq: 1 }],
+        });
+        render(<App />);
+
+        // Pre-flight sanity: paused UI is showing with the failure rendered.
+        // ef-appstate-bar's `heading` is a non-reflected property rendered
+        // in shadow DOM, so we read the JS prop + data-session attribute
+        // (same pattern as LogPanel.test.tsx).
+        const bar = () => document.querySelector("ef-appstate-bar.log-status") as
+            | (HTMLElement & { heading?: string })
+            | null;
+        expect(bar()?.getAttribute("data-session")).toBe("paused");
+        // "Element not found" appears in BOTH the FailureCard and the
+        // LogPanel's synthetic FAIL row derived from currentFailure, so
+        // count rather than uniqueness-assert.
+        expect(screen.getAllByText(/Element not found/i).length).toBeGreaterThan(0);
+
+        // Clicking the currently-selected spec row drives
+        // requestSelectionChange with `node: null` — a node CHANGE within
+        // the same spec, exactly the same App.tsx branch as an
+        // `it → it` tree click would take.
+        fireEvent.click(screen.getByRole("button", { name: "test/a.spec.js" }));
+        // The Switch suite dialog must open since we're paused.
+        expect(screen.getByRole("dialog", { name: /switch suite/i })).toBeInTheDocument();
+        fireEvent.click(screen.getByRole("button", { name: /^switch$/i }));
+
+        // Server side responds: runner killed → session.reset() → status:idle.
+        act(() => {
+            useStore.getState().applyEvent({ type: "status", state: "idle" });
+        });
+
+        // Selection swapped: same spec, node now null (whole-file).
+        expect(useStore.getState().selectedSpec).toBe("test/a.spec.js");
+        expect(useStore.getState().selectedNode).toBeNull();
+        // Snapshot is fully reset — no lingering paused or currentFailure.
+        expect(useStore.getState().state).toEqual({ state: "idle" });
+        // FailureCard + synthetic LogPanel FAIL row both unmounted.
+        expect(screen.queryAllByText(/Element not found/i)).toHaveLength(0);
+        // Continue button gone.
+        expect(screen.queryByRole("button", { name: /^continue$/i })).not.toBeInTheDocument();
+        // StatusHeader ribbon flipped to idle.
+        expect(bar()?.getAttribute("data-session")).toBe("idle");
+    });
+
+    it("paused → Switch within the same spec → idle: chat messages and pending prompt are cleared", () => {
+        // QA-reported bug: after a paused run the agent's mid-conversation
+        // chat (chat_final body + ask_user prompt with Apply fix /
+        // Inspect / Skip choices) was sticking around when QA clicked a
+        // sibling row in the sidebar. Drives the SAME-spec switch path
+        // (click selected spec row while a sub-node is selected →
+        // node: null) so we exercise the bug-relevant branch of
+        // selectSuite, not the spec-changed branch which already cleared
+        // correctly.
+        useStore.setState({
+            suites: [{ relPath: "test/a.spec.js", absPath: "/x/a.spec.js" }],
+            selectedSpec: "test/a.spec.js",
+            selectedNode: { kind: "it", fullTitle: "Login Form should click the submit button" },
+            state: {
+                state: "paused",
+                currentFailure: { test: "x", file: "y", error: "boom", stack: "" },
+            },
+            chatMessages: [{ role: "assistant", content: "Stale selector — propose updating it to 'button[type=\"submit\"]'." }],
+            pendingPrompt: {
+                reqId: "r1",
+                summary: "MockPage.submitButton returns stale selector",
+                options: [
+                    { id: "apply_a", label: "Fix: update submitButton" },
+                    { id: "investigate_b", label: "Inspect the app further" },
+                ],
+                allowFreeText: true,
+            },
+            agentThinking: false,
+            agentActivity: "",
+        });
+        render(<App />);
+
+        // Sanity: chat content from the prior paused run is visible.
+        expect(screen.getByText(/MockPage.submitButton returns stale selector/i)).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /Fix: update submitButton/i })).toBeInTheDocument();
+
+        // Same-spec node change via clicking the currently-selected spec
+        // row (drives requestSelectionChange({spec, node:null})).
+        fireEvent.click(screen.getByRole("button", { name: "test/a.spec.js" }));
+        expect(screen.getByRole("dialog", { name: /switch suite/i })).toBeInTheDocument();
+        fireEvent.click(screen.getByRole("button", { name: /^switch$/i }));
+        act(() => {
+            useStore.getState().applyEvent({ type: "status", state: "idle" });
+        });
+
+        // Store state cleared.
+        expect(useStore.getState().chatMessages).toEqual([]);
+        expect(useStore.getState().pendingPrompt).toBeNull();
+        // Selection: same spec, node now null.
+        expect(useStore.getState().selectedSpec).toBe("test/a.spec.js");
+        expect(useStore.getState().selectedNode).toBeNull();
+        // UI no longer renders the stale prompt summary or option button.
+        expect(screen.queryByText(/MockPage.submitButton returns stale selector/i)).not.toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: /Fix: update submitButton/i })).not.toBeInTheDocument();
+    });
+
     it("paused → Switch → idle: snapshot is forced to clean idle (no lingering Continue / FailureCard)", () => {
         useStore.setState({
             state: {
                 state: "paused",
                 currentFailure: { test: "x", file: "y", error: "boom", stack: "" },
             },
-            mochaLog: [{ stream: "stdout", text: "old line" }],
+            mochaLog: [{ stream: "stdout", text: "old line", receivedAt: 0, seq: 1 }],
         });
         render(<App />);
 
         // Sanity: paused-state UI is showing.
-        expect(screen.getByText("Status: paused")).toBeInTheDocument();
+        const bar = () => document.querySelector("ef-appstate-bar.log-status") as
+            | (HTMLElement & { heading?: string })
+            | null;
+        expect(bar()?.getAttribute("data-session")).toBe("paused");
         expect(screen.getByRole("button", { name: /^continue$/i })).toBeInTheDocument();
 
         fireEvent.click(screen.getByText("test/b.spec.js"));
@@ -176,7 +305,7 @@ describe("App suite-switch confirmation", () => {
         expect(useStore.getState().mochaLog).toEqual([]);
         // UI no longer shows the paused-state controls.
         expect(screen.queryByRole("button", { name: /^continue$/i })).not.toBeInTheDocument();
-        expect(screen.queryByText("Status: paused")).not.toBeInTheDocument();
+        expect(bar()?.getAttribute("data-session")).toBe("idle");
     });
 
     it("dialog auto-dismisses and selection applies when run finishes naturally", () => {
@@ -189,6 +318,61 @@ describe("App suite-switch confirmation", () => {
         });
         expect(screen.queryByRole("dialog", { name: /switch suite/i })).not.toBeInTheDocument();
         expect(useStore.getState().selectedSpec).toBe("test/b.spec.js");
+    });
+
+    it("paused → Stop → idle: failure card + FAIL log row + Continue button all unmount", () => {
+        // QA-reported bug: clicking Stop while paused left the FailureCard
+        // (in the right "Debug actions" panel) and the synthetic FAIL row
+        // in the LogPanel visible — the paused state never visually
+        // cleared. Stop has no `switching` flag, so the suite-switch
+        // useEffect doesn't run; the only thing that fires is the
+        // `status:idle` reducer. That reducer used to spread `...s.state`,
+        // preserving currentFailure + pausedAt; the fix drops both.
+        useStore.setState({
+            suites: [{ relPath: "test/a.spec.js", absPath: "/x/a.spec.js" }],
+            selectedSpec: "test/a.spec.js",
+            selectedNode: { kind: "it", fullTitle: "SauceDemo Login should enter password" },
+            state: {
+                state: "paused",
+                currentSpec: "test/a.spec.js",
+                currentFailure: {
+                    test: "should enter password",
+                    file: "test/a.spec.js",
+                    error: "Can't call setValue on element with selector \"input.password-field\"",
+                    stack: "",
+                },
+                pausedAt: 5000,
+            },
+            runStartedAt: 1_700_000_000_000,
+        });
+        render(<App />);
+
+        // Pre-flight sanity: paused UI is showing with the failure
+        // rendered in BOTH FailureCard (right panel) and the synthetic
+        // LogPanel FAIL row.
+        expect(screen.getAllByText(/Can't call setValue on element/i).length).toBeGreaterThan(0);
+        expect(screen.getByRole("button", { name: /^continue$/i })).toBeInTheDocument();
+
+        // Click Stop. The button's onClick should send cancel.
+        fireEvent.click(screen.getByRole("button", { name: /^stop$/i }));
+        expect(sendSpy).toHaveBeenCalledWith({ type: "cancel" });
+
+        // Server side responds: runner killed → session.reset() → status:idle.
+        // No `switching` flag is set on Stop, so the cleanup must come
+        // entirely from the status reducer.
+        act(() => {
+            useStore.getState().applyEvent({ type: "status", state: "idle" });
+        });
+
+        // FailureCard + synthetic LogPanel FAIL row both unmounted.
+        expect(screen.queryAllByText(/Can't call setValue on element/i)).toHaveLength(0);
+        // Continue button gone.
+        expect(screen.queryByRole("button", { name: /^continue$/i })).not.toBeInTheDocument();
+        // Snapshot has no lingering paused-state fields.
+        const snap = useStore.getState().state;
+        expect(snap.state).toBe("idle");
+        expect(snap.currentFailure).toBeUndefined();
+        expect(snap.pausedAt).toBeUndefined();
     });
 
     it("during switching: clicking Stop is a no-op (canStop guarded)", () => {

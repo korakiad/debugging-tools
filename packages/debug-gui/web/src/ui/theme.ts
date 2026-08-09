@@ -26,3 +26,9 @@ import "@refinitiv-ui/elements/checkbox/themes/halo/dark";
 
 import "@refinitiv-ui/elements/number-field";
 import "@refinitiv-ui/elements/number-field/themes/halo/dark";
+
+import "@refinitiv-ui/elements/appstate-bar";
+import "@refinitiv-ui/elements/appstate-bar/themes/halo/dark";
+
+import "@refinitiv-ui/elements/notification";
+import "@refinitiv-ui/elements/notification/themes/halo/dark";
